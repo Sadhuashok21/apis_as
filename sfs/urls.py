@@ -39,4 +39,11 @@ urlpatterns = [
     path('2_1/inner_cat', views.inner_cat_2_1, name="inner_cat_2_1"),
 
     path('2_1/insert_dlv', views.insert_dlv, name="insert_dlv"),
+
+
+    # 2.100 start 
+    path('2_100/home_blue', views.home_blue_2_100, name="home_blue_2_100"),
+    path('2_100/home_pla', views.home_pla_2_100, name="home_pla_2_100"),
+    path('2_100/home_cat', views.home_cat_2_100, name="home_cat_2_100"),
+
 ]

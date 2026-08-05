@@ -7,8 +7,79 @@ from shared_lib.sfs_core import utils
 from django.db import connection
 from shared_lib.sfs_core.models import *
 from shared_lib.utils.random import get_client_ip
+from django.db.models import Count, F
 
 # Create your views here.
+
+# 2_100 start 
+
+def home_blue_2_100(request):
+
+    data = {
+        "status": True,
+        "message": "success"
+    }
+
+    blueprints = BP.objects.filter(fviews__gte = 1, status="approved", type="blueprint").select_related('user').prefetch_related('bp_category_bp__category').order_by('?')[:5]
+    blueprint_list = []
+
+    for bp in blueprints:
+        blueprint_list.append({
+            "name": bp.name,
+            "image": bp.image,
+            "views": bp.fviews,
+            "likes": bp.flikes,
+            "downloads": bp.fdownloads,
+            "share": bp.fshare,
+            "comments": bp.comments,
+            "bp_id": bp.bp_id,
+            "user": bp.user.name,
+
+            "categories": [
+                {
+                    "name": cat.category.bp_name,
+                    "cat_id": cat.category.category_id,
+                }
+                for cat in bp.bp_category_bp.all()
+            ]
+        })
+
+    data['blueprints'] = blueprint_list
+
+    return JsonResponse(data, safe=False)
+
+
+def home_pla_2_100(request):
+
+    data = {
+        "status": True,
+        "message": "success"
+    }
+
+    bp = BP.objects.filter(views__gte = 0, status="approved", type="planet").order_by('?').values("views", "name", "image", "fviews", "flikes", "fdownloads", "comments", "fshare", "bp_id", "user__name")[:5]
+    
+    data['planets'] = list(bp)
+
+    return JsonResponse(data, safe=False)
+
+
+def home_cat_2_100(request):
+        
+    data = {
+        "status": True,
+        "message": "success"
+    }
+
+    bp = BpCat.objects.filter(status="approved").annotate(
+    blueprint_count=Count('bp_categories__bp', distinct=True)).order_by('?').values("bp_name", "bp_img", "bp_para", "category_id", "blueprint_count")[:5]
+    
+    data['categories'] = list(bp)
+
+    return JsonResponse(data, safe=False)
+
+# 2_100 end 
+
+
 def home_blueprints(request):
     blueprints = SfsBp.objects.filter(status = "approved", fviews__gte= 1000)[:10]
     data = {

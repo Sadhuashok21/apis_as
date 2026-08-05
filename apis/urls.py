@@ -26,10 +26,7 @@ urlpatterns = [
     # spaceflight Simulator
     path('apps/sfs/', include('sfs.urls'), name="sfs"),
 
-
-
     #aaaaa - protein app
-
     path('apps/aaaaa/', include('aaaaa.urls'), name="aaaaa"),
 
 
@@ -50,5 +47,11 @@ urlpatterns = [
     path('insertions/sfs_insert', views.insert_sfs_app, name="sfs_insert"),
     path('insertions/sfs_error', views.error_sfs_app, name="error_sfs"),
 
+    path('signin/', views.signin, name="signin"),
+    path('signup/forgot_password', views.forgot_password_i, name="forgot_password_i"),
+    path('signup/', views.signup, name="signup"),
+    path('signup/check_username', views.check_username, name="check_username"),
+    path('signup/otp', views.otp_i, name="otp_i"),
+    path('signup/check_mail', views.check_mail, name="check_mail"),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
