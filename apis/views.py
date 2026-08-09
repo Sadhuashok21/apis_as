@@ -61,6 +61,26 @@ def email_i(request):
         data.update({"message": "failed"})
         return JsonResponse(data, safe=False)
 
+def check_signin(request):
+    email = request.GET.get('email', '')
+
+    if email:
+        user = AllUsers.objects.filter(email=email).first()
+
+        if user is None:
+            return JsonResponse({"status": False, "message": "User not found", "signin": "no"}, safe=False)
+    
+        return JsonResponse({
+            "status": True,
+            "message": "Login successful",
+            "signin": "success",
+            "user_id": user.user_id
+        })
+
+
+    else:
+        data.update({"message": "failed"})
+        return JsonResponse(data, safe=False)
 
 def signup(request):
     name = request.GET.get('name', '')
@@ -75,16 +95,19 @@ def signup(request):
 
     if name and lastname and platform and platform_name and username and password and email and type:
 
-        user_exists = AllUsers.objects.filter(username=username).exists()
+        user_exists = AllUsers.objects.filter(username=username).first()
 
         if user_exists:
-            return JsonResponse({"status": False, "message": "Username already exists"}, safe=False)
-            
+            print(user_exists.user_id)
+            return JsonResponse({"status": False, "message": "Username", "signin": user_exists.user_id}, safe=False)
+
+
+        user_id = random.unique_id()
         user = AllUsers(
             name=name,
             lastname=lastname, 
             email=email,
-            user_id=random.unique_id(), 
+            user_id=user_id, 
             username=username,
             platform=platform,
             platform_name=platform_name,
@@ -98,7 +121,7 @@ def signup(request):
         
         user.save()
 
-        data.update({"message": "success", "signin": "new"})
+        data.update({"message": "success", "signin": "new", "user_id": user_id})
 
         # insertions.insert_name(random.get_client_ip(request), sfs_app_version, name)
         return JsonResponse(data, safe=False)

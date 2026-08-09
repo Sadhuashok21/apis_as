@@ -6,10 +6,94 @@ import hashlib
 from shared_lib.sfs_core import utils
 from django.db import connection
 from shared_lib.sfs_core.models import *
-from shared_lib.utils.random import get_client_ip
+from shared_lib.utils.random import get_client_ip, unique_id
 from django.db.models import Count, F
 
 # Create your views here.
+
+def like(request):
+    bp_id = request.GET.get('bp_id', '')
+    user_id = request.GET.get('user_id', '')
+
+    if bp_id and user_id:
+        blueprint = BP.objects.filter(bp_id=bp_id).first()
+
+        if blueprint is None:
+            #insert_error(get_client_ip(request), request.session.get('user_id', 'anonymous'), version, "Blueprint not found during like", request.build_absolute_uri())
+            return JsonResponse({"status": False, "message": "Blueprint not found."}, safe=False)
+
+        favorite = BpDlv.objects.filter(bp_pla_id=bp_id, user_id=user_id, type="like").first()
+
+        if favorite:
+            favorite.delete()
+
+            blueprint.flikes -= 1
+            blueprint.likes -= 1
+            blueprint.save()
+
+            Favorites.objects.filter(user_id=user_id, bp_id=bp_id).delete()
+
+            #insert_activity(get_client_ip(request), version, "unliked_blueprint", user_id)
+            return JsonResponse({"status": True, "message": "Unliked successfully."}, safe=False)
+        else:
+            Favorites.objects.create(user_id=user_id, bp_id=bp_id, status="approved", time=timezone.now())
+            BpDlv.objects.create(
+                ip = get_client_ip(request),
+                platform_name = "app",
+                platform = "sfs",
+                version = "2.100",
+                type="like",
+                download_type = "null",
+                bp_pla_id=bp_id,
+                user_id=user_id,
+                dlv_id = unique_id(),
+                time=timezone.now(),
+            )
+            blueprint.flikes += 1
+            blueprint.likes += 1
+            blueprint.save()
+        #insert_activity(get_client_ip(request), version, "liked_blueprint", user_id)
+            return JsonResponse({"status": True, "message": "Liked successfully."}, safe=False)
+    else:
+        #insert_error(get_client_ip(request), request.session.get('user_id', 'anonymous'), version, "Missing user id or blueprint id during like", request.build_absolute_uri())
+        return JsonResponse({"status": False, "message": "Missing user id or blueprint id."}, safe=False)
+
+
+def favorites_2_1(request):
+    user_id = request.GET.get('user_id', '')
+    
+    data = {
+            "status": True,
+            "message": "success"
+        }
+    if user_id:
+        favorites = Favorites.objects.filter(user_id = user_id, status = 'approved').select_related('bp').values("bp__name", "bp__image", "bp__fviews", "bp__flikes", "bp__fdownloads", "bp__fshare", "bp__comments", "bp__bp_id", "bp__user__name")
+        if favorites:
+
+            data.update({"favorites": list(favorites)})
+        else:
+            data.update({"action": "no"})
+            data.update({"favorites": "no"})
+    else:
+        data.update({"message": "empty"})
+
+    return JsonResponse(data, safe= False)
+
+
+
+def check_like(request):
+    bp_id = request.GET.get('bp_id', '')
+    user_id = request.GET.get('user_id', '')
+
+    if bp_id and user_id:
+        favorite = BpDlv.objects.filter(bp_pla_id=bp_id, user_id=user_id, type="like").first()
+
+        if favorite:
+            return JsonResponse({"status": True, "liked": True}, safe=False)
+        else:
+            return JsonResponse({"status": True, "liked": False}, safe=False)
+    else:
+        return JsonResponse({"status": False, "message": "Missing user id or blueprint id."}, safe=False)
 
 # 2_100 start 
 
@@ -686,27 +770,6 @@ def profile_2_1(request):
             data.update({"name": profile.name, "email": profile.email})
         else:
             data.update({"action": "no user"})
-    else:
-        data.update({"message": "empty"})
-
-    return JsonResponse(data, safe= False)
-
-
-def favorites_2_1(request):
-    user_id = request.GET.get('user_id', '')
-    
-    data = {
-            "status": True,
-            "message": "success"
-        }
-    if user_id:
-        favorites = Favorites.objects.filter(user_id = user_id)
-
-        if favorites:
-
-            data.update({"favorites": list(favorites.values("bp_pla_id", "type"))})
-        else:
-            data.update({"action": "no favorites"})
     else:
         data.update({"message": "empty"})
 
