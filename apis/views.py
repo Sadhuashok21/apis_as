@@ -6,6 +6,9 @@ from django.core.mail import send_mail
 from django.db.models import Q
 from django.contrib.auth.hashers import check_password
 
+
+version = "1.0"
+
 sfs_app_version = "2.1"
 
 data = {
@@ -456,4 +459,192 @@ def otp_i(request):
         return JsonResponse(data, safe=False)
 
 
+
+
+
+def er_400(request, exception):
+    try:
+        error_msg = f"400 at {request.path}"
+
+        if request.user.is_authenticated:
+            
+            insertions.insert_error(random.get_client_ip(request), version, error_msg, request.build_absolute_uri(), 400, "website", "sfs", request.user.user_id)
+        else:
+            insertions.insert_error(random.get_client_ip(request), version, error_msg, request.build_absolute_uri(), 400, "website", "sfs" )     
+
+
+    except Exception as e:
+        # Log to console or ignore — don’t break the 404 page
+        print("Failed to log 404:", e)
+
+    return render(request, "400.html", status=400)
+
+
+
+def er_401(request, exception):
+    try:
+        error_msg = f"401 at {request.path}"
+
+        if request.user.is_authenticated:
+            
+            insertions.insert_error(random.get_client_ip(request), version, error_msg, request.build_absolute_uri(), 401, "website", "sfs", request.user.user_id)
+        else:
+            insertions.insert_error(random.get_client_ip(request), version, error_msg, request.build_absolute_uri(), 401, "website", "sfs" )     
+
+
+
+
+        insertions.insert_error(random.get_client_ip(request), request.session.get('user_id', 'anonymous'), version, error_msg, request.path)
+        
+    except Exception as e:
+        # Log to console or ignore — don’t break the 404 page
+        print("Failed to log 404:", e)
+
+    return render(request, "401.html", status=401)
+
+
+def er_403(request, exception):
+    try:
+        error_msg = f"403 at {request.path}"
+
+        if request.user.is_authenticated:
+            
+            insertions.insert_error(random.get_client_ip(request), version, error_msg, request.build_absolute_uri(), 403, "website", "sfs", request.user.user_id)
+        else:
+            insertions.insert_error(random.get_client_ip(request), version, error_msg, request.build_absolute_uri(), 403, "website", "sfs" )     
+
+    except Exception as e:
+        # Log to console or ignore — don’t break the 404 page
+        print("Failed to log 404:", e)
+
+    return render(request, "403.html", status=403)
+
+
+def er_404(request, exception):
+
+    try:
+        error_msg = f"404 at {request.path}"
+
+        if request.user.is_authenticated:
+            
+            insertions.insert_error(random.get_client_ip(request), version, error_msg, request.build_absolute_uri(), 404, "website", "sfs", request.user.user_id)
+        else:
+            insertions.insert_error(random.get_client_ip(request), version, error_msg, request.build_absolute_uri(), 404, "website", "sfs" )     
+
+    except Exception as e:
+        # Log to console or ignore — don’t break the 404 page
+        print("Failed to log 404:", e)
+
+    return render(request, "404.html", {"path": request.path}, status=404)
+
+
+
+def er_408(request, exception):
+    try:
+        error_msg = f"408 at {request.path}"
+
+        if request.user.is_authenticated:
+            
+            insertions.insert_error(random.get_client_ip(request), version, error_msg, request.build_absolute_uri(), 408, "website", "sfs", request.user.user_id)
+        else:
+            insertions.insert_error(random.get_client_ip(request), version, error_msg, request.build_absolute_uri(), 408, "website", "sfs" )     
+
+    except Exception as e:
+        # Log to console or ignore — don’t break the 404 page
+        print("Failed to log 404:", e)
+
+    return render(request, "408.html", status=408)
+
+
+def er_500(request):
+    try:
+        error_msg = f"500 at {request.path}"
+
+        if request.user.is_authenticated:
+                
+            insertions.insert_error(random.get_client_ip(request), version, error_msg, request.build_absolute_uri(), 500, "website", "sfs", request.user.user_id)
+        else:
+            insertions.insert_error(random.get_client_ip(request), version, error_msg, request.build_absolute_uri(), 500, "website", "sfs" )     
     
+    except Exception as e:
+        # Log to console or ignore — don’t break the 404 page
+        print("Failed to log 404:", e)
+
+    return render(request, "500.html", {"path": request.path}, status=500)
+
+
+def er_502(request, exception):
+    try:
+        error_msg = f"502 at {request.path}"
+
+        if request.user.is_authenticated:
+            
+            insertions.insert_error(random.get_client_ip(request), version, error_msg, request.build_absolute_uri(), 502, "website", "sfs", request.user.user_id)
+        else:
+            insertions.insert_error(random.get_client_ip(request), version, error_msg, request.build_absolute_uri(), 502, "website", "sfs" )     
+
+
+    except Exception as e:
+        # Log to console or ignore — don’t break the 404 page
+        print("Failed to log 404:", e)
+
+    return render(request, "502.html", status=502)
+
+
+def er_503(request, exception):
+    try:
+        error_msg = f"503 at {request.path}"
+
+
+        if request.user.is_authenticated:
+            
+            insertions.insert_error(random.get_client_ip(request), version, error_msg, request.build_absolute_uri(), 503, "website", "sfs", request.user.user_id)
+        else:
+            insertions.insert_error(random.get_client_ip(request), version, error_msg, request.build_absolute_uri(), 503, "website", "sfs" )     
+
+    except Exception as e:
+        # Log to console or ignore — don’t break the 404 page
+        print("Failed to log 404:", e)
+
+    return render(request, "503.html", status=503)
+
+
+def er_504(request, exception):
+    try:
+        error_msg = f"504 at {request.path}"
+
+        if request.user.is_authenticated:
+            
+            insertions.insert_error(random.get_client_ip(request), version, error_msg, request.build_absolute_uri(), 504, "website", "sfs", request.user.user_id)
+        else:
+            insertions.insert_error(random.get_client_ip(request), version, error_msg, request.build_absolute_uri(), 504, "website", "sfs" )     
+
+    except Exception as e:
+        # Log to console or ignore — don’t break the 404 page
+        print("Failed to log 404:", e)
+
+    return render(request, "504.html", status=504)
+
+
+def er_505(request, exception):
+    try:
+        error_msg = f"505 at {request.path}"
+
+        if request.user.is_authenticated:
+            
+            insertions.insert_error(random.get_client_ip(request), version, error_msg, request.build_absolute_uri(), 505, "website", "sfs", request.user.user_id)
+        else:
+            insertions.insert_error(random.get_client_ip(request), version, error_msg, request.build_absolute_uri(), 505, "website", "sfs" )     
+
+    except Exception as e:
+        # Log to console or ignore — don’t break the 404 page
+        print("Failed to log 404:", e)
+
+    return render(request, "505.html", status=505)
+
+
+
+
+
+
+

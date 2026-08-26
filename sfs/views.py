@@ -2,12 +2,17 @@ from django.shortcuts import render
 from .models import *
 from django.http import JsonResponse
 from django.utils import timezone
-import hashlib
+import hashlib, os
 from shared_lib.sfs_core import utils
 from django.db import connection
 from shared_lib.sfs_core.models import *
 from shared_lib.utils.random import get_client_ip, unique_id
 from django.db.models import Count, F
+from shared_lib.utils.models import *
+from django.views import View
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Create your views here.
 
@@ -57,6 +62,114 @@ def like(request):
     else:
         #insert_error(get_client_ip(request), request.session.get('user_id', 'anonymous'), version, "Missing user id or blueprint id during like", request.build_absolute_uri())
         return JsonResponse({"status": False, "message": "Missing user id or blueprint id."}, safe=False)
+
+
+class Upload(View):
+    def post(self, request):
+        name = request.POST.get('name', '')
+        image = request.FILES.get('image', '')
+        zipfile = request.FILES.get('zip_file', '')
+        sfs_link = request.POST.get('sfs_link', '')
+        type = request.POST.get('type', '')
+        user_id = request.session.get('user_id', '')
+        description = request.POST.get('description', '')
+      
+        categories = request.POST.getlist('categories')
+
+        data = {
+            "status": True,
+            "message": "success"
+        }
+
+        if type == "Select":
+            return JsonResponse(data)
+        
+        if name and image and zipfile and type and user_id:
+            import boto3
+            new_image = unique_id() + "." + image.name.split('.')[-1]
+
+            new_zip = unique_id() + "." + zipfile.name.split('.')[-1]
+
+        
+            s3 = boto3.client(
+                service_name="s3",
+                endpoint_url=os.getenv("endpoint_url"),
+                aws_access_key_id=os.getenv("aws_access_key_id"),
+                aws_secret_access_key=os.getenv("aws_secret_access_key"),
+                region_name="auto",
+            )
+     
+
+            bp_id = unique_id()
+
+            bp = BP.objects.create(
+                name=name,
+                image=new_image,
+                zipfiles=new_zip,
+                sfs_link=sfs_link if type == "blueprint" else "none",
+                type=type,
+                bp_id=bp_id,
+                status="approved",
+                description = description,
+                ip=request.META.get('REMOTE_ADDR'),
+                user_id=user_id,
+                time=timezone.now(),
+            )
+
+            for cat_id in categories:
+                BPCategories.objects.create(
+                    bp_id=bp_id,
+                    category_id=cat_id,
+                    time = timezone.now(),
+                    ip = request.META.get('REMOTE_ADDR'),
+                    status = "approved",
+                )
+
+
+            response1 = s3.put_object(
+                Bucket="sfs-blueprints",
+                Key="sfs/images/" + new_image,
+                Body=image,
+                ContentType=image.content_type,
+            )
+
+            response = s3.put_object(
+                Bucket="sfs-blueprints",
+                Key="sfs/zipfiles/" + new_zip,
+                Body=zipfile,
+                ContentType=zipfile.content_type,
+            )
+
+            return JsonResponse(data, safe=False)        
+        
+        else:
+            return JsonResponse(data, safe=False)
+
+
+def device_fcm(request):
+    fcm = request.GET.get('fcm', '')
+    user_id = request.GET.get('user_id', '')
+
+    platform = request.GET.get('platform', '')
+    platform_name = request.GET.get('platform_name', '')
+
+    data = {
+        "status": True,
+        "message": "success",
+    }
+    if fcm and platform and platform_name:
+        DeviceFCM.objects.create(
+                user_id= user_id if user_id else None,
+                platform=platform,
+                platform_name=platform_name,
+                device_id=unique_id(),
+                device = fcm
+            )
+
+        return JsonResponse(data, safe=False)
+    else:
+        data.update({"message": "no"})
+        return JsonResponse(data, safe=False)
 
 
 def favorites_2_1(request):
@@ -165,7 +278,7 @@ def home_cat_2_100(request):
 
 
 def home_blueprints(request):
-    blueprints = SfsBp.objects.filter(status = "approved", fviews__gte= 1000)[:10]
+    blueprints = BP.objects.filter(status = "approved", fviews__gte= 1000)[:10]
     data = {
         "status": True,
         "message": "success",
@@ -175,7 +288,7 @@ def home_blueprints(request):
     return JsonResponse(data, safe=False)
 
 def feature(request):
-    blueprint = SfsBp.objects.filter(feature=1, status="approved").order_by('?')[:1]
+    blueprint = BP.objects.filter(feature=1, status="approved").order_by('?')[:1]
     data = {
         "status": True,
         "message": "success",
@@ -189,7 +302,7 @@ def feature(request):
 
 
 def home_pla(request):
-    pla = SfsBp.objects.filter(status="approved", type="planet")
+    pla = BP.objects.filter(status="approved", type="planet")
 
     data = {
         "status": True,
@@ -213,7 +326,7 @@ def blueprints(request):
     }
 
 
-    blueprints = SfsBp.objects.filter(status="approved", type="blueprint").order_by("-id")[start:end]
+    blueprints = BP.objects.filter(status="approved", type="blueprint").order_by("-id")[start:end]
 
     data.update({
         "off": off_value,
@@ -234,7 +347,7 @@ def plawor(request):
         "message": "success",
     }
 
-    blueprints = SfsBp.objects.filter(status="approved", type="planet").order_by("-id")[start:end]
+    blueprints = BP.objects.filter(status="approved", type="planet").order_by("-id")[start:end]
 
     data.update({
         "off": off_value,
@@ -371,7 +484,7 @@ def profile(request):
 
 
 def home_cat(request):
-    cat = SfsBpCat.objects.filter(status="approved")
+    cat = BpCat.objects.filter(status="approved")
 
     data = {
         "status": True,
@@ -389,7 +502,7 @@ def page(request):
         off = int(off)
 
         with connection.cursor() as cursor:
-            cursor.execute("SELECT COUNT(*) FROM sfs_BP WHERE status = 'approved' and type='blueprint'")
+            cursor.execute("SELECT COUNT(*) FROM sfs_bp WHERE status = 'approved' and type='blueprint'")
             rows = cursor.fetchone()[0]
 
         total_pages = rows // 10 
@@ -506,7 +619,7 @@ def inner_bp(request):
 
     if blueprint_id:
         
-        blueprint = SfsBp.objects.filter(bp_id = blueprint_id, status = 'approved').first()
+        blueprint = BP.objects.filter(bp_id = blueprint_id, status = 'approved').first()
 
         if blueprint:
 
@@ -539,7 +652,7 @@ def error_insert(request):
     if error_id and error_msg and platform and platform_name and version:
         
         if user_id:
-            insert_error = Allerrors.objects.create(
+            insert_error = AllErrors.objects.create(
                 error_id=error_id,
                 error_msg=error_msg,
                 user_id=user_id,
@@ -550,7 +663,7 @@ def error_insert(request):
             )
             data.update({"data": "Inserted"})
         else:
-            insert_error = Allerrors.objects.create(
+            insert_error = AllErrors.objects.create(
                     error_id=error_id,
                     error_msg=error_msg,
                     user_id='null',
@@ -962,7 +1075,6 @@ def insert_dlv(request):
     
         data.update({"message": "empty"})
         return JsonResponse(data, safe=False)
-
 
 
 def inner_cat_2_1(request):

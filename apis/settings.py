@@ -13,7 +13,9 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 import os
 import sys
+from dotenv import load_dotenv
 
+load_dotenv()
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -25,13 +27,13 @@ sys.path.insert(0, PARENT_DIR)
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-d_jisgreughuc&#-$ngu%2a-h4-yi)b+ymh%0npudpqmlr-$+!7f43vuii'
+SECRET_KEY = os.getenv("SESSION_SECRET_KEY")
 
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
-SESSION_COOKIE_DOMAIN = '127.0.0.1'
+SESSION_COOKIE_DOMAIN = os.getenv("SESSION_COOKIE_DOMAIN")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
 ALLOWED_HOSTS = ['*']
 
@@ -49,7 +51,8 @@ INSTALLED_APPS = [
     'aaaaa',
     'aaaab',
     'krishi',
-    'shared_lib'
+    'shared_lib',
+    'shared_lib.sfs_core'
 ]
 
 MIDDLEWARE = [
@@ -60,6 +63,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'apis.middleware.ExceptionLoggingMiddleware',
 ]
 
 ROOT_URLCONF = 'apis.urls'
@@ -67,13 +71,14 @@ ROOT_URLCONF = 'apis.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / "templates"],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'apis.utils.site_data'
             ],
         },
     },
@@ -88,54 +93,16 @@ WSGI_APPLICATION = 'apis.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'as_main',
-        'HOST': 'localhost',
-        'PASSWORD': 'Ashokkumar21',
-        'USER': 'root',
-        'PORT': '3306',
+        'NAME': os.getenv("DB_NAME"),
+        'HOST': os.getenv("DB_HOST"),
+        'PASSWORD': os.getenv("DB_PASSWORD"),
+        'USER': os.getenv("DB_USER"),
+        'PORT': os.getenv("DB_PORT"),
     },
-    'humbell': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'humbell',
-        'HOST': 'localhost',
-        'PASSWORD': 'Ashokkumar21',
-        'USER': 'root',
-        'PORT': '3306',
-    },
-    'krishi': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'krishi1',
-        'HOST': 'localhost',
-        'PASSWORD': 'Ashokkumar21',
-        'USER': 'root',
-        'PORT': '3306',
-    },
-    'aaaab': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'aaaab',
-        'HOST': 'localhost',
-        'PASSWORD': 'Ashokkumar21',
-        'USER': 'root',
-        'PORT': '3306',
-    },
-    'aaaaa': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'aaaaa',
-        'HOST': 'localhost',
-        'PASSWORD': 'Ashokkumar21',
-        'USER': 'root',
-        'PORT': '3306',
-    },
-    'equiskill': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'equiskill',
-        'HOST': 'localhost',
-        'PASSWORD': 'Ashokkumar21',
-        'USER': 'root',
-        'PORT': '3306',
-    },              
-    
 }
+
+
+AUTH_USER_MODEL = "sfs_core.AllUsers"
 
 
 DATABASE_ROUTERS = ['apis.db_router.AppDatabaseRouter']
@@ -189,6 +156,7 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 
 # settings.py

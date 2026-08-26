@@ -44,6 +44,8 @@ urlpatterns = [
 
     path('apps/aaaad/', include('aaaad.urls'), name="aaaad"),
 
+    path('apps/skiltrix/', include('skiltrix.urls'), name="skiltrix"),
+
     path('insertions/sfs_insert', views.insert_sfs_app, name="sfs_insert"),
     path('insertions/sfs_error', views.error_sfs_app, name="error_sfs"),
 
@@ -56,3 +58,21 @@ urlpatterns = [
     path('signup/check_signin', views.check_signin, name="check_signin"),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+
+
+
+
+
+
+handler404 = 'apis.views.er_404'
+handler400 = 'apis.views.er_400'
+handler401 = 'apis.views.er_401'
+handler403 = 'apis.views.er_403'
+handler408 = 'apis.views.er_408'
+handler500 = 'apis.views.er_500'
+handler502 = 'apis.views.er_502'
+handler503 = 'apis.views.er_503'
+handler504 = 'apis.views.er_504'
+handler505 = 'apis.views.er_505'
+
