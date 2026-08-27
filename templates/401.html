@@ -1,0 +1,23 @@
+{% extends "error_base.html" %}
+
+{% block title %}401 Unauthorized{% endblock %}
+
+{% block content %}
+
+    <img src="{{ images }}status/400.webp" alt="401" class="error_img">
+
+    <div class="logo">
+        <div class="logo_img">
+            <img src="https://cdn.ascentracoresolutions.com/ascentra.webp" class="as_logo" alt="logo">
+            &ensp;Ascentracore Solutions
+
+        </div>
+        <br>
+        <p>401 Unauthorized request</p>
+        <br>
+        <br>
+        <p>Authentication is required to access the data.</p>
+        <br>
+    </div>
+    
+{% endblock %}

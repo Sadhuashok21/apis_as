@@ -1,0 +1,26 @@
+{% extends "error_base.html" %}
+
+
+{% block title %}404 Not Found{% endblock %}
+
+{% block content %}
+    
+    <img src="{{images}}status/404.webp" alt="404" class="error_img">
+
+    <div class="logo">
+        <div class="logo_img">
+            <img src="https://cdn.ascentracoresolutions.com/ascentra.webp" class="as_logo" alt="logo">
+            &ensp;Ascentracore Solutions
+
+        </div>
+        <br>
+        <p>404 That's an error</p>
+        <br>
+        <br>
+        <p>Your requested url <b>{{path}}</b> was not found on this server. We will fix soon.</p>
+        <br>
+        <p>Thank you for your patience.</p>
+    </div>
+
+{% endblock %}
+  

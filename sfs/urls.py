@@ -53,5 +53,7 @@ urlpatterns = [
     # extra 
     path('2_1/favorites', views.favorites_2_1, name="favorites"),
         
+    path('fcm', views.device_fcm, name="fcm"),
 
+    
 ]

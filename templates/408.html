@@ -1,0 +1,23 @@
+{% extends "error_base.html" %}
+
+{% block title %}408 Request Timeout{% endblock %}
+
+{% block content %}
+    <img src="{{ images }}status/408.webp" alt="408" class="error_img">
+
+    <div class="logo">
+        <div class="logo_img">
+            <img src="https://cdn.ascentracoresolutions.com/ascentra.webp" class="as_logo" alt="logo">
+            &ensp;Ascentracore Solutions
+
+        </div>
+        <br>
+        <p>408 Request timeout</p>
+        <br>
+        <br>
+        <p>The server is busy. The request is not reached the server.</p>
+        <br>
+        <p>Thank you for your patience.</p>
+    </div>
+
+{% endblock %}

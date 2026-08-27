@@ -1,0 +1,23 @@
+{% extends "error_base.html" %}
+
+{% block title %}504 Gateway Timeout{% endblock %}
+
+{% block content %}
+    <img src="{{ images }}status/504.webp" alt="504" class="error_img">
+
+    <div class="logo">
+        <div class="logo_img">
+            <img src="https://cdn.ascentracoresolutions.com/ascentra.webp" class="as_logo" alt="logo">
+            &ensp;Ascentracore Solutions
+
+        </div>
+        <br>
+        <p>504 Gateway timeout</p>
+        <br>
+        <br>
+        <p>Server didn't get a response in time. Please try after some time.</p>
+        <br>
+        <p>Thank you for your patience.</p>
+    </div>
+
+{% endblock %}
