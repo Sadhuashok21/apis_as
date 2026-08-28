@@ -1,0 +1,22 @@
+{% extends "error_base.html" %}
+
+{% block title %}505 HTTP Version Not Supported{% endblock %}
+
+{% block content %}
+    <img src="{{ images }}status/505.webp" alt="505" class="error_img">
+
+    <div class="logo">
+        <div class="logo_img">
+            <img src="https://cdn.ascentracoresolutions.com/ascentra.webp" class="as_logo" alt="logo">
+            &ensp;Ascentracore Solutions
+
+        </div>
+        <br>
+        <p>505 HTTP version not supported</p>
+        <br>
+        <br>
+        <p>Server doesn't support the HTTP version used by browser. Please use different browser.</p>
+        <br>
+    </div>
+    
+{% endblock %}

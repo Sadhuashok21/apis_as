@@ -1,0 +1,22 @@
+{% extends "error_base.html" %}
+
+{% block title %}400 Bad Request{% endblock %}
+
+{% block content %}
+    <img src="{{ images }}status/400.webp" alt="400" class="error_img">
+
+    <div class="logo">
+        <div class="logo_img">
+            <img src="https://cdn.ascentracoresolutions.com/ascentra.webp" class="as_logo" alt="logo">
+            &ensp;Ascentracore Solutions
+
+        </div>
+        <br>
+        <p>400 Bad request</p>
+        <br>
+        <br>
+        <p>The request is malformed. Please refresh or try after some time.</p>
+        <br>
+    </div>
+
+{% endblock %}

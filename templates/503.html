@@ -1,0 +1,22 @@
+{% extends "error_base.html" %}
+
+{% block title %}503 Service Unavailable{% endblock %}
+{% block content %}
+    <img src="{{ images }}status/503.webp" alt="503" class="error_img">
+
+    <div class="logo">
+        <div class="logo_img">
+            <img src="https://cdn.ascentracoresolutions.com/ascentra.webp" class="as_logo" alt="logo">
+            &ensp;Ascentracore Solutions
+
+        </div>
+        <br>
+        <p>503 Service unavailable</p>
+        <br>
+        <br>
+        <p>Server is temporarily down. Please try after some time.</p>
+        <br>
+        <p>Thank you for your patience.</p>
+    </div>
+    
+{% endblock %}
