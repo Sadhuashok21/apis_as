@@ -56,6 +56,7 @@ urlpatterns = [
     path('signup/otp', views.otp_i, name="otp_i"),
     path('signup/check_mail', views.check_mail, name="check_mail"),
     path('signup/check_signin', views.check_signin, name="check_signin"),
+    path('fcm', views.device_fcm, name="fcm"),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 

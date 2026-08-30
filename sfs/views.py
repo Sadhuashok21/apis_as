@@ -157,6 +157,15 @@ def device_fcm(request):
         "status": True,
         "message": "success",
     }
+
+    if fcm:
+        check = DeviceFCM.objects.filter(device=fcm).first()
+        if check:
+            data.update({"message": "exists"})
+            return JsonResponse(data, safe=False)
+        
+
+
     if fcm and platform and platform_name:
         DeviceFCM.objects.create(
                 user_id= user_id if user_id else None,
@@ -995,6 +1004,9 @@ def search_2_1(request):
 
     if query:
         blueprints = BP.objects.filter(name__icontains=query, status="approved")
+
+        if blueprints.count() == 0:
+            blueprints = BP.objects.filter(status="approved").order_by('?')[:20]
 
 
         blueprint_list = []
