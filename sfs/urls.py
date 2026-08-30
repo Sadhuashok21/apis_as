@@ -55,5 +55,8 @@ urlpatterns = [
         
     path('fcm', views.device_fcm, name="fcm"),
 
+
+    path('upload', views.Upload.as_view(), name="upload"),
+
     
 ]
