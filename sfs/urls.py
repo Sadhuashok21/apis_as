@@ -60,5 +60,8 @@ urlpatterns = [
 
     path('upload/', views.Upload.as_view(), name="upload"),
 
+    path('upload', views.Upload.as_view(), name="upload"),
+
+
     
 ]

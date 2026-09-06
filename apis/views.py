@@ -178,7 +178,6 @@ def check_username(request):
         return JsonResponse(data, safe=False)
 
 
-
 def attach_user_id(request):
     email = request.GET.get('email', '')
 
@@ -202,6 +201,7 @@ def attach_user_id(request):
     else:
         data.update({"message": "no"})
         return JsonResponse(data, safe=False)
+
 
     
 
