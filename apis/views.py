@@ -119,10 +119,15 @@ def signup(request):
 
         user_exists = AllUsers.objects.filter(username=username).first()
 
+
         if user_exists:
             print(user_exists.user_id)
             return JsonResponse({"status": False, "message": "Username", "signin": user_exists.user_id}, safe=False)
 
+        user_exists1 = AllUsers.objects.filter(email=email).first()  
+
+        if user_exists1:
+            return JsonResponse({"status": False, "message": "Email", "signin": user_exists1.user_id}, safe=False)
 
         user_id = random.unique_id()
         user = AllUsers(
@@ -170,6 +175,31 @@ def check_username(request):
             return JsonResponse({"status": True, "message": "Username available", "signin": "available"}, safe=False)
     else:
         data.update({"message": "failed"})
+        return JsonResponse(data, safe=False)
+
+
+def attach_user_id(request):
+    email = request.GET.get('email', '')
+
+    data = {
+        "status" : True,
+        "message": "success"
+    }   
+    
+
+    if email:
+        exists = AllUsers.objects.filter(email=email).first()
+
+        if exists:
+            
+            data.update({"message": "success", "signin": exists.user_id})
+            return JsonResponse(data, safe=False)
+        else:
+            data.update({"message": "no user"})
+            return JsonResponse(data, safe=False)
+
+    else:
+        data.update({"message": "no"})
         return JsonResponse(data, safe=False)
 
 
