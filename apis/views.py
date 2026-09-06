@@ -2,6 +2,8 @@ from django.shortcuts import render, redirect
 from django.http import HttpResponse, JsonResponse
 from shared_lib.utils import insertions, random
 from shared_lib.sfs_core.models import AllUsers
+from shared_lib.utils.models import DeviceFCM
+from shared_lib.utils.random import unique_id
 from django.core.mail import send_mail
 from django.db.models import Q
 from django.contrib.auth.hashers import check_password
@@ -11,24 +13,21 @@ version = "1.0"
 
 sfs_app_version = "2.1"
 
-data = {
-    "status" : True,
-    "message": "success"
-}   
-
 def index(request):
     
     #return redirect("https://www.ascentracoresolutions.com")
     return HttpResponse("You don't have access to this page. Please contact support for more information.")
 
 def insert_sfs_app(request):
-
     activity_id = request.GET.get("activity_id", "")
-
+    data = {
+        "status" : True,
+        "message": "success"
+    }   
 
     if activity_id:
 
-        insertions.insert_activity(random.get_client_ip(request), sfs_app_version, activity_id, request.GET.get('user_id', 'anonymous'))
+        insertions.insert_activity(random.get_client_ip(request), sfs_app_version, activity_id, "app", "sfs_blueprints", request.GET.get('user_id', None))
         return JsonResponse(data, safe=False)
     else:
 
@@ -38,10 +37,14 @@ def insert_sfs_app(request):
 def error_sfs_app(request):
     activity_id = request.GET.get("activity_id", "")
     msg = request.GET.get('msg', '')
+    data = {
+        "status" : True,
+        "message": "success"
+    }   
 
     if activity_id and msg:
 
-        insertions.insert_error(random.get_client_ip(request), request.GET.get('user_id', 'anonymous'), sfs_app_version, msg, activity_id)
+        insertions.insert_error(random.get_client_ip(request), request.GET.get('user_id', None), sfs_app_version, msg, activity_id)
         return JsonResponse(data, safe=False)
     
     else:
@@ -55,9 +58,14 @@ def email_i(request):
 
     user_id = request.GET.get('user_id', '')
 
+    data = {
+        "status" : True,
+        "message": "success"
+    }   
+
+
     if email and user_id:
         
-        insertions.insert_email(random.get_client_ip(request), user_id, sfs_app_version, email)
         return JsonResponse(data, safe=False)
     else:
         
@@ -66,6 +74,12 @@ def email_i(request):
 
 def check_signin(request):
     email = request.GET.get('email', '')
+
+    data = {
+        "status" : True,
+        "message": "success"
+    }   
+
 
     if email:
         user = AllUsers.objects.filter(email=email).first()
@@ -96,14 +110,24 @@ def signup(request):
     type = request.GET.get('type', '')
     photo = request.GET.get('photo', '')
 
+    data = {
+        "status" : True,
+        "message": "success"
+    }   
+
     if name and lastname and platform and platform_name and username and password and email and type:
 
         user_exists = AllUsers.objects.filter(username=username).first()
+
 
         if user_exists:
             print(user_exists.user_id)
             return JsonResponse({"status": False, "message": "Username", "signin": user_exists.user_id}, safe=False)
 
+        user_exists1 = AllUsers.objects.filter(email=email).first()  
+
+        if user_exists1:
+            return JsonResponse({"status": False, "message": "Email", "signin": user_exists1.user_id}, safe=False)
 
         user_id = random.unique_id()
         user = AllUsers(
@@ -118,7 +142,6 @@ def signup(request):
             profile = photo if photo else None
         )
 
-        print(type, platform, platform_name, username, password, email)
 
         user.set_password(password)
         
@@ -138,6 +161,12 @@ def signup(request):
 def check_username(request):
     username = request.GET.get('username', '')
 
+    data = {
+        "status" : True,
+        "message": "success"
+    }   
+
+
     if username:
         user_exists = AllUsers.objects.filter(username=username).exists()
         if user_exists:
@@ -148,9 +177,42 @@ def check_username(request):
         data.update({"message": "failed"})
         return JsonResponse(data, safe=False)
 
+
+
+def attach_user_id(request):
+    email = request.GET.get('email', '')
+
+    data = {
+        "status" : True,
+        "message": "success"
+    }   
+    
+
+    if email:
+        exists = AllUsers.objects.filter(email=email).first()
+
+        if exists:
+            
+            data.update({"message": "success", "signin": exists.user_id})
+            return JsonResponse(data, safe=False)
+        else:
+            data.update({"message": "no user"})
+            return JsonResponse(data, safe=False)
+
+    else:
+        data.update({"message": "no"})
+        return JsonResponse(data, safe=False)
+
+    
+
 def signin(request):
     username = request.GET.get('username', '')
     password = request.GET.get('password', '')
+
+    data = {
+        "status" : True,
+        "message": "success"
+    }   
 
     if username and password:
         user = AllUsers.objects.filter(Q(username=username) | Q(email=username)).first()
@@ -181,9 +243,13 @@ def forgot_password_i(request):
     email = request.GET.get('email', '')
     user_id = request.GET.get('user_id', '')
 
+    data = {
+        "status" : True,
+        "message": "success"
+    }   
+
+
     if email and user_id:
-        
-        insertions.insert_forgot_password(random.get_client_ip(request), user_id, sfs_app_version, email)
         return JsonResponse(data, safe=False)
 
     else:
@@ -193,6 +259,10 @@ def forgot_password_i(request):
 
 def check_mail(request):
     email = request.GET.get('email', '')
+    data = {
+        "status" : True,
+        "message": "success"
+    }   
 
     if email:
         user_exists = AllUsers.objects.filter(email=email).exists()
@@ -328,6 +398,10 @@ def check_mail(request):
 
 
 def otp_i(request):
+    data = {
+        "status" : True,
+        "message": "success"
+    }   
 
     email = request.GET.get('email', '')
     if email:
@@ -457,6 +531,42 @@ def otp_i(request):
     else:
         data.update({"message": "failed"})
         return JsonResponse(data, safe=False)
+
+
+
+def device_fcm(request):
+    fcm = request.GET.get('fcm', '')
+    user_id = request.GET.get('user_id', '')
+
+    platform = request.GET.get('platform', '')
+    platform_name = request.GET.get('platform_name', '')
+
+    data = {
+        "status": True,
+        "message": "success",
+    }
+
+    if fcm:
+        check = DeviceFCM.objects.filter(device=fcm).first()
+        if check:
+            data.update({"message": "exists"})
+            return JsonResponse(data, safe=False)
+        
+    if fcm and platform and platform_name:
+
+        DeviceFCM.objects.create(
+                user_id= user_id if user_id else None,
+                platform=platform,
+                platform_name=platform_name,
+                device_id=unique_id(),
+                device = fcm
+            )
+
+        return JsonResponse(data, safe=False)
+    else:
+        data.update({"message": "no"})
+        return JsonResponse(data, safe=False)
+
 
 
 

@@ -38,7 +38,9 @@ urlpatterns = [
     path('2_1/blueprint_page', views.page, name="blue_page_2_1"),
     path('2_1/inner_cat', views.inner_cat_2_1, name="inner_cat_2_1"),
 
-    path('2_1/insert_dlv', views.insert_dlv, name="insert_dlv"),
+    path('2_1/insert_dlv', views.insert_dlv, name="2_1_insert_dlv"),
+    
+    path('insert_dlv', views.insert_dlv, name="insert_dlv"),
 
 
     # 2.100 start 
@@ -54,6 +56,9 @@ urlpatterns = [
     path('2_1/favorites', views.favorites_2_1, name="favorites"),
         
     path('fcm', views.device_fcm, name="fcm"),
+
+
+    path('upload/', views.Upload.as_view(), name="upload"),
 
     
 ]

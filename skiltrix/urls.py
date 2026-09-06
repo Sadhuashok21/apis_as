@@ -10,4 +10,5 @@ urlpatterns = [
     path('profile-resumes', profile_resumes, name="profile_resumes"),
     path('profile-education', profile_education, name="profile-education"),
     path('videos/', videos, name="videos"),
+    path('languages/', languages, name="languages"),
 ]

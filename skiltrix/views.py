@@ -6,13 +6,28 @@ from shared_lib.skiltrix_core.models import *
 
 
 def internships(request):
+
+    type = request.GET.get('type', '')
+
+
     data = {
         "status": True,
         "message": "success",
         "action": "retrieved"
     }
+    if type == 'paid':
+        internships = Internship.objects.filter(status="active", is_paid=1).values()
+    elif type== 'free':
+        
+        internships = Internship.objects.filter(status="active", is_paid=0).values()
+    elif type == 'remote':
+        
+        internships = Internship.objects.filter(status="active", location='remote').values()
+    else:
+        
+        internships = Internship.objects.filter(status="active",).values()
 
-    data.update({"internships": list(Internship.objects.filter(status="active").values())})
+    data.update({"internships": list(internships)})
     return JsonResponse(data, safe=False)
 
 
@@ -26,12 +41,16 @@ def profile(request):
     }
     if user_id:
    
-        profile = AllUsers.objects.filter(status="active", user_id = user_id).first()
+        profile = AllUsers.objects.filter(status="approved", user_id = user_id).first()
 
+        if profile:
+
+            data.update({'action': profile.user_id})
+        else:
+            data.update({'action': "no"})
     else:
-        data.update({"action": "nouser"})
+        data.update({"action": "empty"})
 
-    data.update({'profile': profile.user_id})
     return JsonResponse(data, safe=False)
 
 
@@ -47,8 +66,13 @@ def profile_skills(request):
     
         profile = AllUsers.objects.filter(status="active", user_id = user_id).first()
 
+        if profile:
+            skills = Skills.objects.filter(user_id = user_id)
+            data.update({"skills": list(skills.values())})
+        else:
+            data.update({'action': "no"})
     else:
-        data.update({"action": "nouser"})
+        data.update({"action": "empty"})
 
     data.update({'profile': profile.user_id})
     return JsonResponse(data, safe=False)
@@ -68,16 +92,39 @@ def recommend(request):
 
 def courses(request):
 
+    type = request.GET.get("type", '')
     data = {
         "status": True,
         "message": "success",
         "action": "retrieved"
     }
 
-    courses = Courses.objects.filter(status="active").values()
+    if type == 'free':
+
+        courses = Courses.objects.filter(status="active", is_paid=0).values()
+    elif type == 'paid':
     
+        courses = Courses.objects.filter(status="active", is_paid=1).values()
+    else: 
+        courses = Courses.objects.filter(status="active").values()
+        
     data.update({"courses": list(courses)})
     return JsonResponse(data, safe=False)
+
+def languages(request):
+
+    data = {
+        "status": True,
+        "message": "success",
+        "action": "retrieved"
+    }
+
+    languages = Language.objects.filter(status="active").values()
+        
+    data.update({"languages": list(languages)})
+    return JsonResponse(data, safe=False)
+
+
 
 def videos(request):
     data = {
