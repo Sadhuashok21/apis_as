@@ -1,3 +1,4 @@
+import json
 from django.shortcuts import render, redirect
 from django.http import HttpResponse, JsonResponse
 from shared_lib.utils import insertions, random
@@ -7,6 +8,8 @@ from shared_lib.utils.random import unique_id
 from django.core.mail import send_mail
 from django.db.models import Q
 from django.contrib.auth.hashers import check_password
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
 
 
 version = "1.0"
@@ -99,16 +102,25 @@ def check_signin(request):
         data.update({"message": "failed"})
         return JsonResponse(data, safe=False)
 
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
 def signup(request):
-    name = request.GET.get('name', '')
-    lastname = request.GET.get('lastname', '')
-    username = request.GET.get('username', '')
-    password = request.GET.get('password', '')
-    email = request.GET.get('email', '')
-    platform = request.GET.get('platform', '')
-    platform_name = request.GET.get('platform_name', '')
-    type = request.GET.get('type', '')
-    photo = request.GET.get('photo', '')
+    if request.method == "POST":
+        try:
+            payload = json.loads(request.body or "{}")
+        except json.JSONDecodeError:
+            payload = request.POST
+    else:
+        payload = request.GET
+    name = payload.get('name', '')
+    lastname = payload.get('lastname', '')
+    username = payload.get('username', '')
+    password = payload.get('password', '')
+    email = payload.get('email', '')
+    platform = payload.get('platform', '')
+    platform_name = payload.get('platform_name', '')
+    type = payload.get('type', '')
+    photo = payload.get('photo', '')
 
     data = {
         "status" : True,
@@ -205,9 +217,18 @@ def attach_user_id(request):
 
     
 
+@csrf_exempt
+@require_http_methods(["GET", "POST"])
 def signin(request):
-    username = request.GET.get('username', '')
-    password = request.GET.get('password', '')
+    if request.method == "POST":
+        try:
+            payload = json.loads(request.body or "{}")
+        except json.JSONDecodeError:
+            payload = request.POST
+    else:
+        payload = request.GET
+    username = payload.get('username', '')
+    password = payload.get('password', '')
 
     data = {
         "status" : True,

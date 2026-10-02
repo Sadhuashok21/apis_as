@@ -17,32 +17,26 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from . import views
+from . import admin_views
 from django.conf import settings
 from django.conf.urls.static import static
 
 urlpatterns = [
     path('', views.index, name="index"),
 
+    # Admin Management REST API Endpoints
+    path('api/admin/stats/', admin_views.get_admin_stats, name="admin_stats"),
+    path('api/admin/users/', admin_views.admin_users, name="admin_users"),
+    path('api/admin/users/<int:user_id>/', admin_views.admin_users, name="admin_user_detail"),
+    path('api/admin/logs/', admin_views.admin_logs, name="admin_logs"),
+    path('api/admin/blueprints/', admin_views.admin_blueprints, name="admin_blueprints"),
+    path('api/admin/blueprints/<str:bp_id>/', admin_views.admin_blueprints, name="admin_blueprint_detail"),
+    path('api/admin/database/tables/', admin_views.admin_database_tables, name="admin_database_tables"),
+    path('api/admin/categories/', admin_views.admin_categories, name="admin_categories"),
+    path('api/admin/transport_hub/', admin_views.admin_transport_hub, name="admin_transport_hub"),
+
     # spaceflight Simulator
     path('apps/sfs/', include('sfs.urls'), name="sfs"),
-
-    #aaaaa - protein app
-    path('apps/aaaaa/', include('aaaaa.urls'), name="aaaaa"),
-
-
-    # aaaab
-    path('apps/aaaab/', include('aaaab.urls'), name="aaaab"),
-
-
-    # aaaac
-    path('apps/aaaac/', include('aaaac.urls'), name="aaaac"),
-
-
-
-    # krishi
-    path('apps/krishi/', include('krishi.urls'), name="krishi"),
-
-    path('apps/aaaad/', include('aaaad.urls'), name="aaaad"),
 
     path('apps/skiltrix/', include('skiltrix.urls'), name="skiltrix"),
 
@@ -61,10 +55,6 @@ urlpatterns = [
     path('attach_user_id/', views.attach_user_id, name="attach_user_id")
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-
-
-
-
 
 
 

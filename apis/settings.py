@@ -47,17 +47,18 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'rest_framework',
     'sfs',
-    'aaaaa',
-    'aaaab',
     'krishi',
     'shared_lib',
-    'shared_lib.sfs_core'
+    'shared_lib.sfs_core',
+    'shared_lib.skiltrix_core'
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'apis.cors.FrontendCorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -65,6 +66,15 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'apis.middleware.ExceptionLoggingMiddleware',
 ]
+
+FRONTEND_ALLOWED_ORIGINS = tuple(
+    origin.strip()
+    for origin in os.getenv(
+        "FRONTEND_ALLOWED_ORIGINS",
+        "http://localhost:8443,http://127.0.0.1:8443",
+    ).split(",")
+    if origin.strip()
+)
 
 ROOT_URLCONF = 'apis.urls'
 
@@ -157,11 +167,6 @@ USE_TZ = True
 STATIC_URL = 'static/'
 
 STATIC_ROOT = BASE_DIR / "staticfiles"
-
-
-# settings.py
-MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
 
 
 
