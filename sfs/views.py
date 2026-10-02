@@ -11,12 +11,14 @@ from django.db.models import Count, F
 from shared_lib.utils.models import *
 from django.views import View
 from dotenv import load_dotenv
+
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .serializers import *
+
 
 load_dotenv()
 
@@ -89,13 +91,18 @@ def like(request):
 class Upload(View):
     
 
+class Upload(View):
+
     def post(self, request):
         name = request.POST.get('name', '')
         image = request.FILES.get('image', '')
         zipfile = request.FILES.get('zip_file', '')
         sfs_link = request.POST.get('sfs_link', '')
         type = request.POST.get('type', '')
+
         user_id = request.POST.get('user_id', '')
+        user_id = request.session.get('user_id', '')
+
         description = request.POST.get('description', '')
       
         categories = request.POST.getlist('categories')
@@ -115,7 +122,14 @@ class Upload(View):
             new_zip = unique_id() + "." + zipfile.name.split('.')[-1]
 
 
- 
+
+            print("================================")
+            print("ENDPOINT:", os.getenv("endpoint_url"))
+            print("ACCESS:", os.getenv("aws_access_key_id"))
+            print("SECRET EXISTS:", bool(os.getenv("aws_secret_access_key")))
+            print("================================")
+        
+
             s3 = boto3.client(
                 service_name="s3",
                 endpoint_url=os.getenv("endpoint_url"),
