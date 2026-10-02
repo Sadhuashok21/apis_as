@@ -13,8 +13,27 @@ from django.views import View
 from dotenv import load_dotenv
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from .serializers import *
 
 load_dotenv()
+
+class BPSerializers(APIView):
+
+    bps = BP.objects.all()
+    seri = BpSerializers(bps, many=True)
+    
+
+    def get(self, request):
+        return Response(self.seri.data)
+        pass
+    def post(self, request):
+        return Response({"message": "POST request received"})
+        pass
+    
+
 
 # Create your views here.
 
@@ -96,12 +115,7 @@ class Upload(View):
             new_zip = unique_id() + "." + zipfile.name.split('.')[-1]
 
 
-            print("================================")
-            print("ENDPOINT:", os.getenv("endpoint_url"))
-            print("ACCESS:", os.getenv("aws_access_key_id"))
-            print("SECRET EXISTS:", bool(os.getenv("aws_secret_access_key")))
-            print("================================")
-        
+ 
             s3 = boto3.client(
                 service_name="s3",
                 endpoint_url=os.getenv("endpoint_url"),

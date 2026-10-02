@@ -60,5 +60,8 @@ urlpatterns = [
 
     path('upload/', views.Upload.as_view(), name="upload"),
 
+
+    path('ser/', views.BPSerializers.as_view(), name="ser"),
+
     
 ]
