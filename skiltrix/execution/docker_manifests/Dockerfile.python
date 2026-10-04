@@ -1,0 +1,17 @@
+# Hardened Rootless Python Sandbox Image
+FROM python:3.11-slim
+
+# Create unprivileged runner user
+RUN groupadd -g 10001 runner && \
+    useradd -u 10001 -g runner -m -s /bin/bash runner
+
+# Security hardening: remove package managers, set permissions
+WORKDIR /workspace
+RUN chown runner:runner /workspace && \
+    chmod 750 /workspace
+
+USER runner:runner
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+ENTRYPOINT ["python", "-u"]

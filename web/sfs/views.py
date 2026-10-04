@@ -1,5 +1,5 @@
 from django.shortcuts import render, redirect
-from shared_lib.sfs_core.models import *
+from sfs.models import *
 from .utils import *
 from django.http import JsonResponse, StreamingHttpResponse
 from apps.utils import *
@@ -11,7 +11,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.contrib import messages
 from django.db.models import Count
-from shared_lib.utils.insertions import *
+from sfs.utils import *
 import requests
 
 

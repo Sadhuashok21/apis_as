@@ -3,12 +3,11 @@ from .models import *
 from django.http import JsonResponse
 from django.utils import timezone
 import hashlib, os
-from shared_lib.sfs_core import utils
+from . import utils
 from django.db import connection
-from shared_lib.sfs_core.models import *
-from shared_lib.utils.random import get_client_ip, unique_id
+from .models import *
+from .utils import get_client_ip, unique_id
 from django.db.models import Count, F
-from shared_lib.utils.models import *
 from django.views import View
 from dotenv import load_dotenv
 from django.views.decorators.csrf import csrf_exempt

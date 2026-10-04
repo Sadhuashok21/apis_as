@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from shared_lib.sfs_core.models import *
+from .models import *
 
 
 

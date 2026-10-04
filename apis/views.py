@@ -1,15 +1,18 @@
 import json
 from django.shortcuts import render, redirect
 from django.http import HttpResponse, JsonResponse
-from shared_lib.utils import insertions, random
-from shared_lib.sfs_core.models import AllUsers
-from shared_lib.utils.models import DeviceFCM
-from shared_lib.utils.random import unique_id
+from sfs import utils as insertions
+from sfs import utils as random
+from sfs.models import AllUsers, DeviceFCM
+from sfs.utils import unique_id
 from django.core.mail import send_mail
 from django.db.models import Q
 from django.contrib.auth.hashers import check_password
+from django.contrib.auth import login as auth_login
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
+from django.views.decorators.csrf import ensure_csrf_cookie
+from skiltrix.authentication import issue_access_token
 
 
 version = "1.0"
@@ -17,8 +20,9 @@ version = "1.0"
 sfs_app_version = "2.1"
 
 def index(request):
-    
-    #return redirect("https://www.ascentracoresolutions.com")
+    host = request.get_host().lower()
+    if "127.0.0.1" in host or "localhost" in host:
+        return redirect("http://localhost:8443/")
     return HttpResponse("You don't have access to this page. Please contact support for more information.")
 
 def insert_sfs_app(request):
@@ -103,6 +107,7 @@ def check_signin(request):
         return JsonResponse(data, safe=False)
 
 @csrf_exempt
+@ensure_csrf_cookie
 @require_http_methods(["GET", "POST"])
 def signup(request):
     if request.method == "POST":
@@ -158,8 +163,14 @@ def signup(request):
         user.set_password(password)
         
         user.save()
+        auth_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
-        data.update({"message": "success", "signin": "new", "user_id": user_id})
+        data.update({
+            "message": "success",
+            "signin": "new",
+            "user_id": user_id,
+            "access_token": issue_access_token(user),
+        })
 
         # insertions.insert_name(random.get_client_ip(request), sfs_app_version, name)
         return JsonResponse(data, safe=False)
@@ -218,6 +229,7 @@ def attach_user_id(request):
     
 
 @csrf_exempt
+@ensure_csrf_cookie
 @require_http_methods(["GET", "POST"])
 def signin(request):
     if request.method == "POST":
@@ -242,12 +254,14 @@ def signin(request):
             return JsonResponse({"status": False, "message": "User not found", "signin": "no"}, safe=False)
     
         if check_password(password, user.password):
+            auth_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
             return JsonResponse({
                 "status": True,
                 "message": "Login successful",
                 "signin": "success",
-                "user_id": user.user_id
+                "user_id": user.user_id,
+                "access_token": issue_access_token(user),
             })
 
         return JsonResponse({
@@ -259,6 +273,8 @@ def signin(request):
     else:
         data.update({"message": "failed"})
         return JsonResponse(data, safe=False)
+
+
 
 def forgot_password_i(request):
     email = request.GET.get('email', '')

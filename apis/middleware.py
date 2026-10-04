@@ -1,6 +1,6 @@
 import traceback, re
 
-from shared_lib.utils import insertions
+from sfs import utils as insertions
 
 import os
 import traceback
@@ -113,12 +113,12 @@ class ExceptionLoggingMiddleware:
                     app_name
                 )
 
-            print("🔥 ERROR INSERTED SUCCESSFULLY")
+            print("[ERROR LOG] ERROR INSERTED SUCCESSFULLY")
 
         except Exception as e:
 
             print(
-                "🔥 ERROR INSERTION FAILED:",
+                "[ERROR LOG] ERROR INSERTION FAILED:",
                 e
             )
 
