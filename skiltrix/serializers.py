@@ -1,85 +1,34 @@
 from rest_framework import serializers
-from shared_lib.sfs_core.models import AllUsers
 from .models import (
-    Companies, Company,
-    Internship, InternshipProgram, InternshipStep, InternshipProgress, InternshipStepProgress,
-    Courses, Course, CourseTopic, CourseModule, CourseLesson, Lesson, CourseEnrollment, LessonProgress,
-    Videos, Video, VideoLike, VideoComment, VideoCommentLike, VideoBookmark, VideoSubtitle, VideoNote,
-    Comments, Comment,
-    Ratings, Rating, CourseReview,
-    Language, ProgrammingLanguage, Technology,
-    CourseCategories, CourseCategory,
-    Resumes, Resume,
-    Skills, Skill,
-    Education,
-    Code, SavedCode,
-    Likes,
-    UserProfile,
-    Badges, Badge,
-    UserBadges, UserBadge,
-    DailyActivity, DailyContribution, UserActivity,
-    CodingProblems, CodingProblem, CompanyProblem,
-    TestCases, TestCase, ProblemTestCase,
-    CodeSubmissions, CodeSubmission, ProblemSubmission,
-    UserProblemStatus, ProblemProgress,
-    CompilerSnippets, CodeExecution,
-    SyntaxMatrix,
-    Quizzes, Quiz,
-    QuizQuestions, QuizQuestion,
-    QuizOptions, QuizOption,
-    QuizAttempts, QuizAttempt,
-    QuizUserAnswers, QuizAnswer,
-    InterviewCategories, InterviewCategory,
-    InterviewQuestions, InterviewQuestion, InterviewQuestionBookmark,
-    CompanyRoadmaps,
-    MockInterviewSessions,
-    Discussions, Discussion, DiscussionPost,
-    DiscussionReplies, DiscussionReply, DiscussionComment,
-    DiscussionLikes, DiscussionLike, DiscussionPostLike, DiscussionCommentLike,
-    DiscussionBookmarks, DiscussionBookmark,
-    CourseModules,
-    CourseLessons,
-    CourseEnrollments,
-    VideoSubtitles,
-    VideoProgress,
-    VideoNotes,
-    InternshipApplications, InternshipApplication,
-    SavedInternships, SavedInternship,
-    Notifications, Notification,
-    LearningPath,
-    LessonCodeExample,
-    CodingTopic,
-    ProblemExample,
-    DiscussionTag,
-    UserFollow,
-    UserGoal,
-    CourseBookmark,
-    ProblemBookmark,
-    SearchHistory,
-    InformationPage,
+    Companies, Internship, Courses, Videos, Comments, Ratings, Language,
+    CourseCategories, Resumes, Skills, Education, Code, Likes,
+    UserProfile, Badges, UserBadges, DailyActivity,
+    CodingProblems, TestCases, CodeSubmissions, UserProblemStatus,
+    CompilerSnippets, SyntaxMatrix,
+    Quizzes, QuizQuestions, QuizOptions, QuizAttempts, QuizUserAnswers,
+    InterviewCategories, InterviewQuestions, CompanyRoadmaps, MockInterviewSessions,
+    Discussions, DiscussionReplies, DiscussionLikes, DiscussionBookmarks,
+    CourseModules, CourseLessons, CourseEnrollments,
+    VideoSubtitles, VideoProgress, VideoNotes,
+    InternshipApplications, SavedInternships, Notifications
 )
+from sfs.models import AllUsers
 
 
 # ==============================================================================
-# 1. USER & PROFILE
+# 1. USER & PROFILE SERIALIZERS
 # ==============================================================================
 
 class UserSummarySerializer(serializers.ModelSerializer):
     class Meta:
         model = AllUsers
-        fields = ["id", "user_id", "username", "name", "lastname", "email", "profile", "user_type"]
-
-
-UserSerializer = UserSummarySerializer
+        fields = ["user_id", "username", "name", "lastname", "email", "profile"]
 
 
 class BadgesSerializer(serializers.ModelSerializer):
     class Meta:
         model = Badges
         fields = "__all__"
-
-
-BadgeSerializer = BadgesSerializer
 
 
 class UserBadgesSerializer(serializers.ModelSerializer):
@@ -90,17 +39,10 @@ class UserBadgesSerializer(serializers.ModelSerializer):
         fields = ["user_badge_id", "badge", "earned_at"]
 
 
-UserBadgeSerializer = UserBadgesSerializer
-
-
 class DailyActivitySerializer(serializers.ModelSerializer):
     class Meta:
         model = DailyActivity
         fields = ["activity_id", "date", "minutes_spent", "problems_solved", "quizzes_completed", "xp_earned"]
-
-
-DailyContributionSerializer = DailyActivitySerializer
-UserActivitySerializer = DailyActivitySerializer
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
@@ -112,11 +54,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
     def get_earned_badges(self, obj):
-        try:
-            user_badges = UserBadges.objects.filter(user=obj.user).select_related("badge")
-            return [ub.badge.name for ub in user_badges]
-        except Exception:
-            return []
+        user_badges = UserBadges.objects.filter(user=obj.user).select_related("badge")
+        return [ub.badge.name for ub in user_badges]
 
 
 class ResumeSerializer(serializers.ModelSerializer):
@@ -137,32 +76,14 @@ class EducationSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
-class UserFollowSerializer(serializers.ModelSerializer):
-    follower = UserSummarySerializer(read_only=True)
-    following = UserSummarySerializer(read_only=True)
-
-    class Meta:
-        model = UserFollow
-        fields = "__all__"
-
-
-class UserGoalSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = UserGoal
-        fields = "__all__"
-
-
 # ==============================================================================
-# 2. CODING & COMPILER
+# 2. CODING & PRACTICE SERIALIZERS
 # ==============================================================================
 
-class TestCaseSerializer(serializers.ModelSerializer):
+class TestCasePublicSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestCases
-        fields = ["test_case_id", "input_data", "expected_output", "is_sample", "is_hidden", "points", "order"]
-
-
-ProblemTestCaseSerializer = TestCaseSerializer
+        fields = ["test_case_id", "input_data", "expected_output", "is_sample", "points", "order"]
 
 
 class CodingProblemListSerializer(serializers.ModelSerializer):
@@ -178,8 +99,11 @@ class CodingProblemListSerializer(serializers.ModelSerializer):
 
     def get_is_solved(self, obj):
         request = self.context.get("request")
-        if request and hasattr(request, "user") and request.user.is_authenticated:
+        if request and request.user and request.user.is_authenticated:
             return UserProblemStatus.objects.filter(user=request.user, problem=obj, solved=True).exists()
+        user_id = request.query_params.get("user_id") if request else None
+        if user_id:
+            return UserProblemStatus.objects.filter(user_id=user_id, problem=obj, solved=True).exists()
         return False
 
 
@@ -198,7 +122,7 @@ class CodingProblemDetailSerializer(serializers.ModelSerializer):
 
     def get_sample_test_cases(self, obj):
         samples = obj.test_cases.filter(is_sample=True).order_by("order")
-        return TestCaseSerializer(samples, many=True).data
+        return TestCasePublicSerializer(samples, many=True).data
 
     def get_starter_codes(self, obj):
         return {
@@ -208,10 +132,6 @@ class CodingProblemDetailSerializer(serializers.ModelSerializer):
             "c": obj.starter_c,
             "javascript": obj.starter_javascript,
         }
-
-
-CodingProblemSerializer = CodingProblemDetailSerializer
-CompanyProblemSerializer = CodingProblemListSerializer
 
 
 class CodeSubmissionSerializer(serializers.ModelSerializer):
@@ -225,22 +145,15 @@ class CodeSubmissionSerializer(serializers.ModelSerializer):
             "language", "code", "status", "passed_test_cases", "total_test_cases",
             "execution_time_ms", "memory_kb", "error_message", "score", "created_at"
         ]
-        read_only_fields = [
-            "status", "passed_test_cases", "total_test_cases",
-            "execution_time_ms", "memory_kb", "error_message", "score"
-        ]
-
-
-ProblemSubmissionSerializer = CodeSubmissionSerializer
-
-
-class UserProblemStatusSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = UserProblemStatus
-        fields = "__all__"
-
-
-ProblemProgressSerializer = UserProblemStatusSerializer
+        read_only_fields = ["passed_test_cases", "total_test_cases", "execution_time_ms", "memory_kb", "error_message"]
+        extra_kwargs = {
+            "status": {"required": False},
+            "score": {"required": False},
+            "code": {"required": False},
+            "language": {"required": False},
+            "problem": {"required": False},
+            "user": {"required": False},
+        }
 
 
 class CompilerSnippetSerializer(serializers.ModelSerializer):
@@ -249,64 +162,24 @@ class CompilerSnippetSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
-CodeExecutionSerializer = CompilerSnippetSerializer
-
-
 class SyntaxMatrixSerializer(serializers.ModelSerializer):
     class Meta:
         model = SyntaxMatrix
         fields = "__all__"
 
 
-class LanguageSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Language
-        fields = "__all__"
-
-
-TechnologySerializer = LanguageSerializer
-ProgrammingLanguageSerializer = LanguageSerializer
-
-
-class CodeSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Code
-        fields = "__all__"
-
-
-SavedCodeSerializer = CodeSerializer
-
-
-class CodingTopicSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = CodingTopic
-        fields = "__all__"
-
-
-class ProblemExampleSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ProblemExample
-        fields = "__all__"
-
-
-class ProblemBookmarkSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ProblemBookmark
-        fields = "__all__"
-
-
 # ==============================================================================
-# 3. QUIZZES
+# 3. QUIZZES SERIALIZERS
 # ==============================================================================
 
-class QuizOptionSerializer(serializers.ModelSerializer):
+class QuizOptionPublicSerializer(serializers.ModelSerializer):
     class Meta:
         model = QuizOptions
         fields = ["option_id", "option_text", "order"]
 
 
-class QuizQuestionSerializer(serializers.ModelSerializer):
-    options = QuizOptionSerializer(many=True, read_only=True)
+class QuizQuestionPublicSerializer(serializers.ModelSerializer):
+    options = QuizOptionPublicSerializer(many=True, read_only=True)
 
     class Meta:
         model = QuizQuestions
@@ -314,52 +187,54 @@ class QuizQuestionSerializer(serializers.ModelSerializer):
 
 
 class QuizListSerializer(serializers.ModelSerializer):
+    best_score = serializers.SerializerMethodField()
+    attempts = serializers.SerializerMethodField()
+
     class Meta:
         model = Quizzes
         fields = [
             "quiz_id", "title", "slug", "topic", "difficulty",
-            "duration_minutes", "passing_score", "total_questions", "points", "icon"
+            "duration_minutes", "passing_score", "total_questions", "points", "icon", "best_score", "attempts"
         ]
+
+    def _attempts(self, obj):
+        request = self.context.get("request")
+        user_id = request.query_params.get("user_id") if request else None
+        if not user_id:
+            return QuizAttempts.objects.none()
+        return QuizAttempts.objects.filter(user_id=user_id, quiz=obj)
+
+    def get_best_score(self, obj):
+        return self._attempts(obj).order_by("-percentage").values_list("percentage", flat=True).first() or 0
+
+    def get_attempts(self, obj):
+        return self._attempts(obj).count()
 
 
 class QuizDetailSerializer(serializers.ModelSerializer):
-    questions = QuizQuestionSerializer(many=True, read_only=True)
+    questions = QuizQuestionPublicSerializer(many=True, read_only=True)
 
     class Meta:
         model = Quizzes
         fields = [
             "quiz_id", "title", "slug", "topic", "difficulty",
-            "duration_minutes", "passing_score", "total_questions",
-            "points", "icon", "questions"
+            "duration_minutes", "passing_score", "total_questions", "points", "icon", "questions"
         ]
 
 
-QuizSerializer = QuizDetailSerializer
-
-
-class QuizUserAnswerSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = QuizUserAnswers
-        fields = "__all__"
-
-
-QuizAnswerSerializer = QuizUserAnswerSerializer
-
-
 class QuizAttemptSerializer(serializers.ModelSerializer):
-    user_answers = QuizUserAnswerSerializer(many=True, read_only=True)
+    quiz_title = serializers.ReadOnlyField(source="quiz.title")
 
     class Meta:
         model = QuizAttempts
         fields = [
-            "attempt_id", "user", "quiz", "score", "total_questions",
-            "correct_count", "incorrect_count", "percentage", "passed",
-            "time_taken_seconds", "user_answers", "created_at"
+            "attempt_id", "user", "quiz", "quiz_title", "score", "total_questions",
+            "correct_count", "incorrect_count", "percentage", "passed", "time_taken_seconds", "created_at"
         ]
 
 
 # ==============================================================================
-# 4. INTERVIEW
+# 4. INTERVIEW PREPARATION SERIALIZERS
 # ==============================================================================
 
 class InterviewCategorySerializer(serializers.ModelSerializer):
@@ -374,35 +249,131 @@ class InterviewQuestionSerializer(serializers.ModelSerializer):
     class Meta:
         model = InterviewQuestions
         fields = [
-            "interview_id", "category", "category_name", "topic",
-            "difficulty", "question", "short_answer", "explanation",
-            "code", "language", "tags", "frequent_companies", "status"
+            "interview_id", "category", "category_name", "topic", "difficulty",
+            "question", "short_answer", "explanation", "code", "language",
+            "tags", "frequent_companies", "created_at"
         ]
 
 
-class InterviewQuestionBookmarkSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = InterviewQuestionBookmark
-        fields = "__all__"
-
-
 class CompanyRoadmapSerializer(serializers.ModelSerializer):
+    company_name = serializers.ReadOnlyField(source="company.name")
+
     class Meta:
         model = CompanyRoadmaps
-        fields = "__all__"
-
-
-InternshipStepSerializer = CompanyRoadmapSerializer
-
-
-class MockInterviewSessionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = MockInterviewSessions
-        fields = "__all__"
+        fields = ["roadmap_id", "company", "company_name", "step_number", "title", "description", "category"]
 
 
 # ==============================================================================
-# 5. COMPANIES & INTERNSHIPS
+# 5. COMMUNITY & DISCUSSION SERIALIZERS
+# ==============================================================================
+
+class DiscussionReplySerializer(serializers.ModelSerializer):
+    user = UserSummarySerializer(read_only=True)
+
+    class Meta:
+        model = DiscussionReplies
+        fields = ["reply_id", "discussion", "user", "content", "code", "likes_count", "is_accepted", "created_at"]
+
+
+class DiscussionListSerializer(serializers.ModelSerializer):
+    user = UserSummarySerializer(read_only=True)
+    author_name = serializers.ReadOnlyField(source="user.name")
+    author_profile = serializers.ReadOnlyField(source="user.profile")
+
+    class Meta:
+        model = Discussions
+        fields = [
+            "discussion_id", "user", "author_name", "author_profile", "title", "content", "code", "language", "tag", "likes_count",
+            "comments_count", "is_solved", "is_pinned", "created_at"
+        ]
+
+
+class DiscussionDetailSerializer(serializers.ModelSerializer):
+    user = UserSummarySerializer(read_only=True)
+    author_name = serializers.ReadOnlyField(source="user.name")
+    author_profile = serializers.ReadOnlyField(source="user.profile")
+    replies = DiscussionReplySerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Discussions
+        fields = [
+            "discussion_id", "user", "author_name", "author_profile", "title", "content", "code", "language",
+            "tag", "likes_count", "comments_count", "is_solved", "is_pinned",
+            "created_at", "replies"
+        ]
+
+
+# ==============================================================================
+# 6. COURSES & MEDIA SERIALIZERS
+# ==============================================================================
+
+class CourseLessonSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CourseLessons
+        fields = ["lesson_id", "title", "lesson_type", "duration_minutes", "is_free_preview", "order"]
+
+
+class CourseModuleSerializer(serializers.ModelSerializer):
+    lessons = CourseLessonSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = CourseModules
+        fields = ["module_id", "title", "description", "order", "lessons"]
+
+
+class VideoSubtitleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = VideoSubtitles
+        fields = ["subtitle_id", "language_code", "label", "vtt_url"]
+
+
+class VideoDetailSerializer(serializers.ModelSerializer):
+    subtitles = VideoSubtitleSerializer(many=True, read_only=True)
+    course_id = serializers.CharField(write_only=True, required=False, allow_null=True, allow_blank=True)
+    course_name = serializers.ReadOnlyField(source="course.name")
+
+    class Meta:
+        model = Videos
+        fields = [
+            "video_id", "title", "description", "video", "image",
+            "like", "share", "views", "course", "course_id", "course_name", "subtitles", "created_at"
+        ]
+        extra_kwargs = {
+            "video_id": {"required": False},
+            "video": {"required": False, "allow_blank": True},
+            "image": {"required": False, "allow_blank": True},
+            "description": {"required": False, "allow_blank": True},
+            "course": {"required": False, "allow_null": True}
+        }
+
+
+class CourseDetailSerializer(serializers.ModelSerializer):
+    modules = CourseModuleSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Courses
+        fields = [
+            "course_id", "name", "image", "type", "is_paid", "price",
+            "status", "created_at", "modules"
+        ]
+        extra_kwargs = {
+            "course_id": {"required": False},
+            "image": {"required": False, "allow_blank": True},
+            "price": {"required": False}
+        }
+
+
+class CourseEnrollmentSerializer(serializers.ModelSerializer):
+    course = CourseDetailSerializer(read_only=True)
+    course_name = serializers.ReadOnlyField(source="course.name")
+
+    class Meta:
+        model = CourseEnrollments
+        fields = ["enrollment_id", "user", "course", "course_name", "progress_percent", "is_completed", "enrolled_at", "completed_at"]
+
+
+# ==============================================================================
+# 7. INTERNSHIPS & COMPANIES SERIALIZERS
 # ==============================================================================
 
 class CompanySerializer(serializers.ModelSerializer):
@@ -411,136 +382,62 @@ class CompanySerializer(serializers.ModelSerializer):
     class Meta:
         model = Companies
         fields = ["company_id", "name", "image", "description", "status", "roadmaps", "created_at"]
+        extra_kwargs = {
+            "company_id": {"required": False},
+            "image": {"required": False, "allow_blank": True},
+            "description": {"required": False, "allow_blank": True}
+        }
 
 
 class InternshipSerializer(serializers.ModelSerializer):
-    company_name = serializers.ReadOnlyField(source="company.name")
-    company_image = serializers.ReadOnlyField(source="company.image")
+    company = CompanySerializer(read_only=True)
+    company_id = serializers.CharField(write_only=True, required=False, allow_null=True, allow_blank=True)
 
     class Meta:
         model = Internship
         fields = [
-            "internship_id", "name", "company", "company_name", "company_image",
-            "is_paid", "type", "location", "deadline", "price", "apply_link",
-            "status", "created_at"
+            "internship_id", "name", "company", "company_id", "is_paid", "type",
+            "location", "deadline", "price", "apply_link", "status", "created_at"
         ]
-
-
-InternshipProgramSerializer = InternshipSerializer
+        extra_kwargs = {
+            "internship_id": {"required": False},
+            "location": {"required": False, "allow_blank": True},
+            "deadline": {"required": False, "allow_blank": True},
+            "apply_link": {"required": False, "allow_null": True, "allow_blank": True}
+        }
 
 
 class InternshipApplicationSerializer(serializers.ModelSerializer):
-    user_name = serializers.ReadOnlyField(source="user.name")
-    internship_name = serializers.ReadOnlyField(source="internship.name")
+    internship_title = serializers.ReadOnlyField(source="internship.name")
+    company_name = serializers.ReadOnlyField(source="internship.company.name")
 
     class Meta:
         model = InternshipApplications
         fields = [
-            "application_id", "internship", "internship_name", "user",
-            "user_name", "resume", "cover_letter", "portfolio_url",
-            "status", "applied_at"
+            "application_id", "internship", "internship_title", "company_name",
+            "user", "resume", "cover_letter", "portfolio_url", "status", "applied_at"
         ]
 
 
-InternshipProgressSerializer = InternshipApplicationSerializer
-InternshipStepProgressSerializer = InternshipApplicationSerializer
-
-
-class SavedInternshipSerializer(serializers.ModelSerializer):
-    internship = InternshipSerializer(read_only=True)
-
-    class Meta:
-        model = SavedInternships
-        fields = ["saved_id", "user", "internship", "created_at"]
-
-
 # ==============================================================================
-# 6. COURSES, MODULES & LESSONS
+# 8. NOTIFICATIONS SERIALIZER
 # ==============================================================================
 
-class CourseLessonSerializer(serializers.ModelSerializer):
+class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
-        model = CourseLessons
-        fields = "__all__"
+        model = Notifications
+        fields = ["notification_id", "user", "title", "body", "category", "icon", "read", "action_url", "created_at"]
 
 
-LessonSerializer = CourseLessonSerializer
+# Serializers used by the SkilTrix API viewsets.
+TestCaseSerializer = TestCasePublicSerializer
+CourseSerializer = CourseDetailSerializer
+VideoSerializer = VideoDetailSerializer
 
 
-class LessonCodeExampleSerializer(serializers.ModelSerializer):
+class UserProblemStatusSerializer(serializers.ModelSerializer):
     class Meta:
-        model = LessonCodeExample
-        fields = "__all__"
-
-
-class CourseModuleSerializer(serializers.ModelSerializer):
-    lessons = CourseLessonSerializer(many=True, read_only=True)
-
-    class Meta:
-        model = CourseModules
-        fields = ["module_id", "course", "title", "description", "order", "lessons"]
-
-
-class CourseCategorySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = CourseCategories
-        fields = "__all__"
-
-
-CourseTopicSerializer = CourseCategorySerializer
-
-
-class LearningPathSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = LearningPath
-        fields = "__all__"
-
-
-class CourseSerializer(serializers.ModelSerializer):
-    modules = CourseModuleSerializer(many=True, read_only=True)
-    instructor_name = serializers.ReadOnlyField(source="user.name")
-
-    class Meta:
-        model = Courses
-        fields = [
-            "course_id", "name", "image", "type", "is_paid", "price",
-            "user", "instructor_name", "status", "modules", "created_at"
-        ]
-
-
-class CourseEnrollmentSerializer(serializers.ModelSerializer):
-    course = CourseSerializer(read_only=True)
-
-    class Meta:
-        model = CourseEnrollments
-        fields = ["enrollment_id", "user", "course", "progress_percent", "is_completed", "enrolled_at", "completed_at"]
-
-
-LessonProgressSerializer = CourseEnrollmentSerializer
-
-
-class CourseBookmarkSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = CourseBookmark
-        fields = "__all__"
-
-
-class RatingSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Ratings
-        fields = "__all__"
-
-
-CourseReviewSerializer = RatingSerializer
-
-
-# ==============================================================================
-# 7. VIDEOS, SUBTITLES & PROGRESS
-# ==============================================================================
-
-class VideoSubtitleSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = VideoSubtitles
+        model = UserProblemStatus
         fields = "__all__"
 
 
@@ -556,6 +453,21 @@ class VideoNoteSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+class LanguageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Language
+        fields = ["language_id", "name", "status"]
+        extra_kwargs = {
+            "language_id": {"required": False}
+        }
+
+
+class CodeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Code
+        fields = "__all__"
+
+
 class CommentSerializer(serializers.ModelSerializer):
     user_name = serializers.ReadOnlyField(source="user.name")
 
@@ -564,7 +476,10 @@ class CommentSerializer(serializers.ModelSerializer):
         fields = ["id", "comment", "video", "user", "user_name"]
 
 
-VideoCommentSerializer = CommentSerializer
+class RatingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Ratings
+        fields = "__all__"
 
 
 class LikeSerializer(serializers.ModelSerializer):
@@ -573,92 +488,10 @@ class LikeSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
-VideoLikeSerializer = LikeSerializer
-VideoCommentLikeSerializer = LikeSerializer
-
-
-class VideoBookmarkSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = VideoBookmark
-        fields = "__all__"
-
-
-class VideoSerializer(serializers.ModelSerializer):
-    subtitles = VideoSubtitleSerializer(many=True, read_only=True)
-    course_name = serializers.ReadOnlyField(source="course.name")
-
-    class Meta:
-        model = Videos
-        fields = [
-            "video_id", "title", "description", "video", "image",
-            "like", "share", "views", "course", "course_name",
-            "user", "status", "subtitles", "created_at"
-        ]
-
-
-# ==============================================================================
-# 8. COMMUNITY & DISCUSSIONS
-# ==============================================================================
-
-class DiscussionTagSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = DiscussionTag
-        fields = "__all__"
-
-
-class DiscussionReplySerializer(serializers.ModelSerializer):
-    user_name = serializers.ReadOnlyField(source="user.name")
-    user_profile = serializers.ReadOnlyField(source="user.profile")
-
-    class Meta:
-        model = DiscussionReplies
-        fields = [
-            "reply_id", "discussion", "user", "user_name", "user_profile",
-            "content", "code", "likes_count", "is_accepted", "created_at"
-        ]
-
-
-DiscussionCommentSerializer = DiscussionReplySerializer
-
-
-class DiscussionListSerializer(serializers.ModelSerializer):
-    author_name = serializers.ReadOnlyField(source="user.name")
-    author_profile = serializers.ReadOnlyField(source="user.profile")
-
-    class Meta:
-        model = Discussions
-        fields = [
-            "discussion_id", "title", "content", "code", "language", "tag",
-            "user", "author_name", "author_profile", "likes_count", "comments_count",
-            "is_solved", "is_pinned", "created_at"
-        ]
-
-
-class DiscussionDetailSerializer(serializers.ModelSerializer):
-    author_name = serializers.ReadOnlyField(source="user.name")
-    author_profile = serializers.ReadOnlyField(source="user.profile")
-    replies = DiscussionReplySerializer(many=True, read_only=True)
-
-    class Meta:
-        model = Discussions
-        fields = [
-            "discussion_id", "title", "content", "code", "language", "tag",
-            "user", "author_name", "author_profile", "likes_count", "comments_count",
-            "is_solved", "is_pinned", "replies", "created_at"
-        ]
-
-
-DiscussionPostSerializer = DiscussionDetailSerializer
-
-
 class DiscussionLikeSerializer(serializers.ModelSerializer):
     class Meta:
         model = DiscussionLikes
         fields = "__all__"
-
-
-DiscussionPostLikeSerializer = DiscussionLikeSerializer
-DiscussionCommentLikeSerializer = DiscussionLikeSerializer
 
 
 class DiscussionBookmarkSerializer(serializers.ModelSerializer):
@@ -667,24 +500,9 @@ class DiscussionBookmarkSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
-# ==============================================================================
-# 9. NOTIFICATIONS & MISCELLANEOUS
-# ==============================================================================
+class SavedInternshipSerializer(serializers.ModelSerializer):
+    internship = InternshipSerializer(read_only=True)
 
-class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Notifications
-        fields = ["notification_id", "user", "title", "body", "category", "icon", "read", "action_url", "created_at"]
-
-
-class SearchHistorySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = SearchHistory
-        fields = "__all__"
-
-
-class InformationPageSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = InformationPage
-        fields = "__all__"
-        fields = "__all__"
+        model = SavedInternships
+        fields = ["saved_id", "user", "internship", "created_at"]

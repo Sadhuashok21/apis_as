@@ -1,0 +1,30 @@
+
+REPORT zoop_polymorphism.
+
+CLASS animal DEFINITION.
+  PUBLIC SECTION.
+    METHODS speak.
+ENDCLASS.
+
+CLASS animal IMPLEMENTATION.
+  METHOD speak.
+    WRITE: / 'ANIMAL SOUND'.
+  ENDMETHOD.
+ENDCLASS.
+
+CLASS dog DEFINITION INHERITING FROM animal.
+  PUBLIC SECTION.
+    METHODS speak REDEFINITION.
+ENDCLASS.
+
+CLASS dog IMPLEMENTATION.
+  METHOD speak.
+    WRITE: / 'DOG SOUND'.
+  ENDMETHOD.
+ENDCLASS.
+
+START-OF-SELECTION.
+  DATA animal_ref TYPE REF TO animal.
+
+  animal_ref = NEW dog( ).
+  animal_ref->speak( ).

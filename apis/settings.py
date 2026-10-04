@@ -15,13 +15,20 @@ import os
 import sys
 from dotenv import load_dotenv
 
-load_dotenv()
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Always load the backend's own .env, regardless of the directory from which
+# Django/Gunicorn was started. Existing deployments may use the older
+# RAZORPAY_KEY / RAZORPAY_SECRET names; prefer the documented names when both
+# are present.
+load_dotenv(BASE_DIR / ".env")
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID") or os.getenv("RAZORPAY_KEY", "")
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET") or os.getenv("RAZORPAY_SECRET", "")
+RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET", "")
 
-PARENT_DIR = os.path.dirname(BASE_DIR)
-sys.path.insert(0, PARENT_DIR)
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -33,14 +40,41 @@ SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_COOKIE_DOMAIN = os.getenv("SESSION_COOKIE_DOMAIN")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv("DEBUG", "True").lower() in ("true", "1", "yes")
 
-ALLOWED_HOSTS = ['*']
+_DEFAULT_ALLOWED_HOSTS = [
+    "localhost",
+    "127.0.0.1",
+    "testserver",
+    "asentracoresolutions.com",
+    ".asentracoresolutions.com",
+    "ascentracoresolutions.com",
+    ".ascentracoresolutions.com",
+]
+
+_ENV_HOSTS = [h.strip() for h in os.getenv("ALLOWED_HOSTS", "").split(",") if h.strip()]
+ALLOWED_HOSTS = list(sorted(set(_DEFAULT_ALLOWED_HOSTS + _ENV_HOSTS)))
+
+# ── HTTPS / Secure cookie settings (activate when DEBUG=False + SECURE_SSL=true) ─
+_SECURE = not DEBUG and os.getenv("SECURE_SSL", "false").lower() in ("true", "1", "yes")
+SECURE_PROXY_SSL_HEADER        = ('HTTP_X_FORWARDED_PROTO', 'https')
+SECURE_SSL_REDIRECT            = _SECURE
+SECURE_HSTS_SECONDS            = 31_536_000 if _SECURE else 0
+SECURE_HSTS_INCLUDE_SUBDOMAINS = _SECURE
+SECURE_HSTS_PRELOAD            = _SECURE
+SESSION_COOKIE_SECURE          = _SECURE
+CSRF_COOKIE_SECURE             = _SECURE
+SESSION_COOKIE_SAMESITE        = 'Lax'
+SESSION_COOKIE_HTTPONLY        = True
+CSRF_COOKIE_SAMESITE           = 'Lax'
+CSRF_COOKIE_HTTPONLY           = False
+
 
 
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -48,12 +82,22 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'channels',
     'sfs',
     'krishi',
-    'shared_lib',
-    'shared_lib.sfs_core',
-    'shared_lib.skiltrix_core'
+    'skiltrix',
+    'accounts',
 ]
+
+ASGI_APPLICATION = 'apis.asgi.application'
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    }
+}
+
+X_FRAME_OPTIONS = 'DENY'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -67,14 +111,56 @@ MIDDLEWARE = [
     'apis.middleware.ExceptionLoggingMiddleware',
 ]
 
-FRONTEND_ALLOWED_ORIGINS = tuple(
+_DEFAULT_ORIGINS = (
+    "http://localhost:8443",
+    "http://127.0.0.1:8443",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://localhost:5175",
+    "http://127.0.0.1:5175",
+    "http://localhost:5176",
+    "http://127.0.0.1:5176",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://asentracoresolutions.com",
+    "https://accounts.asentracoresolutions.com",
+    "https://skiltrix.asentracoresolutions.com",
+    "https://admin.asentracoresolutions.com",
+    "https://api.asentracoresolutions.com",
+    "https://ascentracoresolutions.com",
+    "https://accounts.ascentracoresolutions.com",
+    "https://skiltrix.ascentracoresolutions.com",
+    "https://admin.ascentracoresolutions.com",
+    "https://api.ascentracoresolutions.com",
+)
+
+_CUSTOM_ORIGINS = tuple(
     origin.strip()
-    for origin in os.getenv(
-        "FRONTEND_ALLOWED_ORIGINS",
-        "http://localhost:8443,http://127.0.0.1:8443",
-    ).split(",")
+    for origin in os.getenv("FRONTEND_ALLOWED_ORIGINS", "").split(",")
     if origin.strip()
 )
+
+FRONTEND_ALLOWED_ORIGINS = tuple(sorted(set(_DEFAULT_ORIGINS + _CUSTOM_ORIGINS)))
+
+CSRF_TRUSTED_ORIGINS = list(sorted(set(
+    list(FRONTEND_ALLOWED_ORIGINS)
+    + [
+        "https://*.asentracoresolutions.com",
+        "https://asentracoresolutions.com",
+        "https://*.ascentracoresolutions.com",
+        "https://ascentracoresolutions.com",
+    ]
+)))
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "accounts.authentication.GlobalAccountsAuthentication",
+        "skiltrix.authentication.SignedAccessTokenAuthentication",
+        "rest_framework.authentication.SessionAuthentication",
+    ],
+}
 
 ROOT_URLCONF = 'apis.urls'
 
@@ -112,7 +198,7 @@ DATABASES = {
 }
 
 
-AUTH_USER_MODEL = "sfs_core.AllUsers"
+AUTH_USER_MODEL = "sfs.AllUsers"
 
 
 DATABASE_ROUTERS = ['apis.db_router.AppDatabaseRouter']
@@ -120,11 +206,11 @@ DATABASE_ROUTERS = ['apis.db_router.AppDatabaseRouter']
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 
-EMAIL_HOST = 'mail.ascentracoresolutions.com'
-EMAIL_PORT = 587
+EMAIL_HOST = os.getenv("EMAIL_HOST", "mail.ascentracoresolutions.com")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
 
-EMAIL_HOST_USER = 'noreply'
-EMAIL_HOST_PASSWORD = 'Ashokkumar21'
+EMAIL_HOST_USER     = os.getenv("EMAIL_HOST_USER", "noreply")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 
 EMAIL_USE_TLS = True
 EMAIL_USE_SSL = False
@@ -165,8 +251,10 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
-
 STATIC_ROOT = BASE_DIR / "staticfiles"
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / "media"
 
 
 
@@ -174,3 +262,8 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# CodeLab File and Payload Upload Limits (10 MB max request payload)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
+

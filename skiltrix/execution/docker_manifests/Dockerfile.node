@@ -1,0 +1,14 @@
+# Hardened Rootless Node.js Sandbox Image
+FROM node:20-slim
+
+RUN groupadd -g 10001 runner && \
+    useradd -u 10001 -g runner -m -s /bin/bash runner
+
+WORKDIR /workspace
+RUN chown runner:runner /workspace && \
+    chmod 750 /workspace
+
+USER runner:runner
+ENV NODE_ENV=production
+
+ENTRYPOINT ["node"]

@@ -1,0 +1,10 @@
+{
+  "active_database": "default_db",
+  "databases": {
+    "default_db": {
+      "name": "default_db",
+      "created_at": "2026-10-03T05:46:29.545202+00:00",
+      "is_default": true
+    }
+  }
+}

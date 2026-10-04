@@ -1,0 +1,65 @@
+version: "3.9"
+
+services:
+  execution_python:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    image: skiltrix/runner-python:latest
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+          pids: 64
+    network_mode: none
+    restart: "no"
+
+  execution_node:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    image: skiltrix/runner-node:latest
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+          pids: 64
+    network_mode: none
+    restart: "no"
+
+  execution_java:
+    build:
+      context: .
+      dockerfile: Dockerfile.java
+    image: skiltrix/runner-java:latest
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+          pids: 64
+    network_mode: none
+    restart: "no"

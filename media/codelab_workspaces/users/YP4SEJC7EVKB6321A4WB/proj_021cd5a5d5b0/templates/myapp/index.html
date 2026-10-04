@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h1 style="color: #6366f1;">🚀 {{ title }}</h1>
+    <p>Your Django development environment is active and running cleanly.</p>
+    <ul>
+        <li>Modify <code>myapp/views.py</code> or <code>myapp/models.py</code> to add features.</li>
+        <li>Visit <code>/api/tasks/</code> for JSON response.</li>
+    </ul>
+</div>
+{% endblock %}

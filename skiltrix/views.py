@@ -1,15 +1,32 @@
 import uuid
 import requests
+from django.http import JsonResponse
+from django.middleware.csrf import get_token
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.shortcuts import render
 from django.http import JsonResponse
+from django.contrib.auth import logout as auth_logout
 from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
-from shared_lib.sfs_core.models import AllUsers
-from shared_lib.skiltrix_core.models import (
+from sfs.models import AllUsers
+
+
+@ensure_csrf_cookie
+def csrf_bootstrap(request):
+    """Expose the CSRF token to credentialed browser clients on another origin."""
+    return JsonResponse({"csrfToken": get_token(request)})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def signout(request):
+    auth_logout(request)
+    return Response({"status": True})
+from .models import (
     Companies,
     Internship,
     Courses,
@@ -57,7 +74,7 @@ from shared_lib.skiltrix_core.models import (
     Notifications,
 )
 
-from shared_lib.skiltrix_core.serializers import (
+from .serializers import (
     UserSummarySerializer,
     UserProfileSerializer,
     BadgesSerializer,
@@ -585,11 +602,21 @@ def submit_code(request):
     if not problem:
         return Response({"status": False, "message": "Problem not found"}, status=status.HTTP_404_NOT_FOUND)
 
-    # Evaluate test cases
-    test_cases = TestCases.objects.filter(problem=problem).order_by("order")
-    total_tc = test_cases.count()
-    passed_tc = total_tc  # default simulation passes all sample test cases
-    sub_status = "Accepted" if passed_tc == total_tc else "Wrong Answer"
+    # Evaluate test cases with real execution engine
+    from .codelab_evaluator import evaluate_test_cases
+    from .codelab_models import SubmissionResult
+
+    eval_result = evaluate_test_cases(
+        problem=problem,
+        language=language,
+        code=code,
+        is_sample_only=False,
+    )
+    sub_status = eval_result["verdict"]
+    passed_tc = eval_result["passed_count"]
+    total_tc = eval_result["total_count"]
+    exec_time = eval_result["total_duration_ms"]
+    memory_used = eval_result["max_memory_kb"]
 
     submission_id = f"sub_{uuid.uuid4().hex[:12]}"
     submission = CodeSubmissions.objects.create(
@@ -601,10 +628,23 @@ def submit_code(request):
         status=sub_status,
         passed_test_cases=passed_tc,
         total_test_cases=total_tc,
-        execution_time_ms=45.2,
-        memory_kb=1024.0,
+        execution_time_ms=exec_time,
+        memory_kb=memory_used,
         score=problem.points if sub_status == "Accepted" else 0
     )
+
+    # Save detailed per-test-case results
+    for tr in eval_result["test_results"]:
+        SubmissionResult.objects.create(
+            result_id=f"res_{uuid.uuid4().hex[:12]}",
+            submission_id=submission_id,
+            test_case_id=tr["test_case_id"],
+            verdict=tr["verdict"],
+            execution_time_ms=tr.get("execution_time_ms", 0.0),
+            memory_kb=tr.get("memory_kb", 0.0),
+            actual_output=tr.get("actual_output", ""),
+            error_message=tr.get("error_message", ""),
+        )
 
     # Update or create user problem status
     user_status, _ = UserProblemStatus.objects.get_or_create(
@@ -629,15 +669,50 @@ def submit_code(request):
 
     return Response({
         "status": True,
-        "message": "Submission recorded successfully",
+        "message": "Submission evaluated successfully",
         "submission": CodeSubmissionSerializer(submission).data,
         "result": {
             "verdict": sub_status,
             "passed": passed_tc,
             "total": total_tc,
-            "points_earned": problem.points if sub_status == "Accepted" else 0
+            "duration_ms": exec_time,
+            "points_earned": problem.points if sub_status == "Accepted" else 0,
+            "test_results": eval_result["test_results"],
         }
     }, status=status.HTTP_201_CREATED)
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def run_sample_code(request):
+    """
+    Run code against sample test cases only, returning detailed output for user inspection.
+    """
+    problem_id = request.data.get("problem_id")
+    language = request.data.get("language", "python")
+    code = request.data.get("code", "")
+
+    problem = CodingProblems.objects.filter(problem_id=problem_id).first()
+    if not problem:
+        return Response({"status": False, "message": "Problem not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    from .codelab_evaluator import evaluate_test_cases
+    eval_result = evaluate_test_cases(
+        problem=problem,
+        language=language,
+        code=code,
+        is_sample_only=True,
+    )
+
+    return Response({
+        "status": True,
+        "verdict": eval_result["verdict"],
+        "passed": eval_result["passed_count"],
+        "total": eval_result["total_count"],
+        "duration_ms": eval_result["total_duration_ms"],
+        "test_results": eval_result["test_results"],
+    })
+
 
 
 @api_view(["POST"])

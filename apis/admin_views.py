@@ -1,13 +1,14 @@
 import json
+from datetime import date, timedelta
 from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.db import connection, models
-from django.db.models import Q, Sum
+from django.db.models import Count, Q, Sum
+from django.db.models.functions import TruncDate
 from django.utils import timezone
-from shared_lib.sfs_core.models import AllUsers, BP, BpCat, BPCategories
-from shared_lib.utils.models import TotalActivity, AllErrors
-from shared_lib.utils.random import unique_id, get_client_ip
+from sfs.models import AllUsers, BP, BpCat, BPCategories, TotalActivity, AllErrors
+from sfs.utils import unique_id, get_client_ip
 
 
 def get_admin_stats(request):
@@ -58,6 +59,63 @@ def get_admin_stats(request):
         })
     except Exception as e:
         return JsonResponse({"status": False, "error": str(e)}, status=500)
+
+
+@require_http_methods(["GET"])
+def get_admin_analytics(request):
+    """Return daily activity and error counts for a bounded date range."""
+    today = timezone.localdate()
+    try:
+        end_date = date.fromisoformat(request.GET.get("end_date", today.isoformat()))
+        start_date = date.fromisoformat(
+            request.GET.get("start_date", (today - timedelta(days=6)).isoformat())
+        )
+    except ValueError:
+        return JsonResponse(
+            {"status": False, "error": "Dates must use YYYY-MM-DD format."},
+            status=400,
+        )
+
+    if end_date < start_date:
+        return JsonResponse(
+            {"status": False, "error": "end_date must be on or after start_date."},
+            status=400,
+        )
+    if (end_date - start_date).days > 365:
+        return JsonResponse(
+            {"status": False, "error": "Date range cannot exceed 366 days."},
+            status=400,
+        )
+
+    activity_counts = {
+        row["day"]: row["total"]
+        for row in TotalActivity.objects.filter(
+            time__date__range=(start_date, end_date)
+        ).annotate(day=TruncDate("time")).values("day").annotate(total=Count("id"))
+    }
+    error_counts = {
+        row["day"]: row["total"]
+        for row in AllErrors.objects.filter(
+            time__date__range=(start_date, end_date)
+        ).annotate(day=TruncDate("time")).values("day").annotate(total=Count("id"))
+    }
+
+    daily = []
+    current_date = start_date
+    while current_date <= end_date:
+        daily.append({
+            "date": current_date.isoformat(),
+            "activities": activity_counts.get(current_date, 0),
+            "errors": error_counts.get(current_date, 0),
+        })
+        current_date += timedelta(days=1)
+
+    return JsonResponse({
+        "status": True,
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "daily": daily,
+    })
 
 
 @csrf_exempt
@@ -573,5 +631,4 @@ def admin_database_tables(request):
         })
     except Exception as e:
         return JsonResponse({"status": False, "error": str(e)}, status=500)
-
 
