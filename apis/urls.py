@@ -20,15 +20,25 @@ from django.http import HttpResponse
 from . import views
 from . import admin_views
 from skiltrix import payments_admin
+from skiltrix.admin import company_assessments_dashboard_view
 from django.conf import settings
 from django.conf.urls.static import static
+
+from cms.views import generate_sitemap_xml, generate_robots_txt
 
 ADS_TXT_CONTENT = "google.com, pub-8687126461256058, DIRECT, f08c47fec0942fa0\n"
 
 urlpatterns = [
+    path('admin/company-assessments-dashboard/', admin.site.admin_view(company_assessments_dashboard_view), name="company-assessments-dashboard"),
+    path('admin/', admin.site.urls),
     path('', views.index, name="index"),
+    path('sitemap.xml', generate_sitemap_xml, name="sitemap_xml"),
+    path('robots.txt', generate_robots_txt, name="robots_txt"),
     path('ads.txt', lambda r: HttpResponse(ADS_TXT_CONTENT, content_type="text/plain"), name="ads_txt"),
     path('app-ads.txt', lambda r: HttpResponse(ADS_TXT_CONTENT, content_type="text/plain"), name="app_ads_txt"),
+
+    # Public Content Management System REST APIs
+    path('api/content/', include('cms.urls')),
 
     # Authenticated SkilTrix administration for compiler pricing and coupons
     path('api/admin/compiler-pricing/', payments_admin.product_config, name="compiler-product-config"),
@@ -47,6 +57,9 @@ urlpatterns = [
     path('api/admin/database/tables/', admin_views.admin_database_tables, name="admin_database_tables"),
     path('api/admin/categories/', admin_views.admin_categories, name="admin_categories"),
     path('api/admin/transport_hub/', admin_views.admin_transport_hub, name="admin_transport_hub"),
+
+    # WhatsApp Cloud API Webhook & Chatbot
+    path('api/whatsapp/', include('whatsapp.urls')),
 
     # Central Accounts & SSO Identity System
     path('api/accounts/', include('accounts.urls')),

@@ -4,6 +4,9 @@ from .models import (
     CourseCategories, Resumes, Skills, Education, Code, Likes,
     UserProfile, Badges, UserBadges, DailyActivity,
     CodingProblems, TestCases, CodeSubmissions, UserProblemStatus,
+    CodingAssessment, AssessmentQuestion, AssessmentAttempt,
+    AssessmentSection, AssessmentQuestionItem, AssessmentEvent, CompanyBlueprint,
+    AssessmentTestCase, QuestionPool,
     CompilerSnippets, SyntaxMatrix,
     Quizzes, QuizQuestions, QuizOptions, QuizAttempts, QuizUserAnswers,
     InterviewCategories, InterviewQuestions, CompanyRoadmaps, MockInterviewSessions,
@@ -59,9 +62,15 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
 
 class ResumeSerializer(serializers.ModelSerializer):
+    pdf_url = serializers.SerializerMethodField()
+
     class Meta:
         model = Resumes
         fields = "__all__"
+
+    def get_pdf_url(self, obj):
+        from apis.cdn_utils import get_st_pdf_url
+        return get_st_pdf_url(obj.name)
 
 
 class SkillSerializer(serializers.ModelSerializer):
@@ -83,7 +92,7 @@ class EducationSerializer(serializers.ModelSerializer):
 class TestCasePublicSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestCases
-        fields = ["test_case_id", "input_data", "expected_output", "is_sample", "points", "order"]
+        fields = ["test_case_id", "input_data", "expected_output", "is_sample", "category", "points", "order"]
 
 
 class CodingProblemListSerializer(serializers.ModelSerializer):
@@ -92,7 +101,7 @@ class CodingProblemListSerializer(serializers.ModelSerializer):
     class Meta:
         model = CodingProblems
         fields = [
-            "problem_id", "title", "slug", "difficulty", "topics",
+            "problem_id", "title", "slug", "difficulty", "question_type", "category", "topics",
             "acceptance_rate", "points", "solved_count", "total_attempts",
             "is_solved"
         ]
@@ -110,14 +119,17 @@ class CodingProblemListSerializer(serializers.ModelSerializer):
 class CodingProblemDetailSerializer(serializers.ModelSerializer):
     sample_test_cases = serializers.SerializerMethodField()
     starter_codes = serializers.SerializerMethodField()
+    has_solution = serializers.SerializerMethodField()
 
     class Meta:
         model = CodingProblems
         fields = [
-            "problem_id", "title", "slug", "difficulty", "topics",
+            "problem_id", "title", "slug", "difficulty", "question_type", "category", "topics",
             "acceptance_rate", "points", "description", "input_format",
-            "output_format", "constraints", "starter_codes",
-            "hints", "sample_test_cases", "created_at"
+            "output_format", "constraints", "expected_complexity",
+            "error_snippet", "expected_behavior",
+            "time_limit_seconds", "memory_limit_mb",
+            "starter_codes", "hints", "sample_test_cases", "has_solution", "created_at"
         ]
 
     def get_sample_test_cases(self, obj):
@@ -131,7 +143,189 @@ class CodingProblemDetailSerializer(serializers.ModelSerializer):
             "cpp": obj.starter_cpp,
             "c": obj.starter_c,
             "javascript": obj.starter_javascript,
+            "sql": obj.starter_sql,
         }
+
+    def get_has_solution(self, obj):
+        return bool(obj.solution_code or obj.explanation)
+
+
+class AssessmentSectionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AssessmentSection
+        fields = [
+            "section_id", "title", "section_type", "order",
+            "duration_minutes", "instructions", "total_marks"
+        ]
+
+
+class AssessmentTestCasePublicSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AssessmentTestCase
+        fields = ["id", "case_id", "input_data", "expected_output", "weight", "order"]
+
+
+class AssessmentQuestionItemCandidateSerializer(serializers.ModelSerializer):
+    problem = CodingProblemListSerializer(read_only=True)
+    public_test_cases = serializers.SerializerMethodField()
+    options = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AssessmentQuestionItem
+        fields = [
+            "item_id", "slug", "section", "section_assignment", "problem",
+            "question_type", "title", "prompt", "instructions",
+            "input_format", "output_format", "constraints", "examples", "hints",
+            "starter_code", "function_signature", "language", "difficulty", "category",
+            "subcategory", "company_style", "options", "time_limit_seconds", "memory_limit_mb",
+            "order", "marks", "negative_marks", "public_test_cases",
+            "buggy_code", "error_message", "expected_behavior", "debugging_task",
+            "environment_info", "framework_version"
+        ]
+
+    def get_public_test_cases(self, obj):
+        # 1. Direct AssessmentTestCase records (Public only!)
+        direct_tests = obj.test_cases.filter(is_active=True, test_type="Public").order_by("order", "id")
+        if direct_tests.exists():
+            return AssessmentTestCasePublicSerializer(direct_tests, many=True).data
+
+        # 2. Or if linked to CodingProblem, return public/sample test cases
+        if obj.problem:
+            sample_tests = obj.problem.test_cases.filter(is_sample=True).order_by("order")
+            return [
+                {
+                    "id": tc.id,
+                    "case_id": tc.test_case_id,
+                    "input_data": tc.input_data,
+                    "expected_output": tc.expected_output,
+                    "weight": tc.points,
+                    "order": tc.order,
+                }
+                for tc in sample_tests
+            ]
+        return []
+
+    def get_options(self, obj):
+        opts = obj.options or []
+        # If randomize_options is enabled on the assessment, shuffle deterministically
+        if obj.assessment and getattr(obj.assessment, "randomize_options", False) and isinstance(opts, list):
+            import random
+            shuffled = list(opts)
+            attempt_id = self.context.get("attempt_id") if isinstance(self.context, dict) else None
+            seed = f"{attempt_id}_{obj.pk}" if attempt_id else str(obj.pk)
+            r = random.Random(seed)
+            r.shuffle(shuffled)
+            return shuffled
+        return opts
+
+
+class AssessmentQuestionItemFullSerializer(serializers.ModelSerializer):
+    problem = CodingProblemListSerializer(read_only=True)
+
+    class Meta:
+        model = AssessmentQuestionItem
+        fields = [
+            "item_id", "section", "problem", "question_type", "title",
+            "prompt", "options", "correct_answers", "explanation", "order",
+            "marks", "negative_marks"
+        ]
+
+
+class AssessmentQuestionSerializer(serializers.ModelSerializer):
+    problem = CodingProblemListSerializer(read_only=True)
+
+    class Meta:
+        model = AssessmentQuestion
+        fields = ["item_id", "order", "marks", "problem"]
+
+
+class CodingAssessmentListSerializer(serializers.ModelSerializer):
+    question_count = serializers.SerializerMethodField()
+    section_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CodingAssessment
+        fields = [
+            "assessment_id", "title", "slug", "category", "company_tag",
+            "description", "difficulty", "duration_minutes", "total_marks",
+            "pass_percentage", "is_company_mock", "is_pro_only",
+            "proctoring_enabled", "question_count", "section_count"
+        ]
+
+    def get_question_count(self, obj):
+        item_count = obj.question_items.count()
+        return item_count if item_count > 0 else obj.questions.count()
+
+    def get_section_count(self, obj):
+        return obj.sections.count()
+
+
+class CodingAssessmentDetailSerializer(serializers.ModelSerializer):
+    sections = AssessmentSectionSerializer(many=True, read_only=True)
+    question_items = serializers.SerializerMethodField()
+    questions = AssessmentQuestionSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = CodingAssessment
+        fields = [
+            "assessment_id", "title", "slug", "category", "company_tag",
+            "description", "difficulty", "duration_minutes", "total_marks",
+            "pass_percentage", "negative_marking_percentage", "is_company_mock",
+            "is_pro_only", "proctoring_enabled", "require_fullscreen",
+            "require_screen_share", "max_tab_switches", "max_fullscreen_exits",
+            "allow_return_to_previous", "auto_submit_on_violations",
+            "randomize_questions", "sections", "question_items", "questions"
+        ]
+
+    def get_question_items(self, obj):
+        assigned_ids = self.context.get("assigned_question_ids")
+        if assigned_ids:
+            items = list(AssessmentQuestionItem.objects.filter(item_id__in=assigned_ids).select_related("section", "problem").prefetch_related("test_cases"))
+            items_by_id = {item.item_id: item for item in items}
+            ordered = [items_by_id[qid] for qid in assigned_ids if qid in items_by_id]
+            return AssessmentQuestionItemCandidateSerializer(ordered, many=True, context=self.context).data
+        qs = obj.question_items.filter(status="Published").order_by("order", "id")
+        return AssessmentQuestionItemCandidateSerializer(qs, many=True, context=self.context).data
+
+
+CodingAssessmentSerializer = CodingAssessmentListSerializer
+
+
+class AssessmentAttemptSerializer(serializers.ModelSerializer):
+    assessment_title = serializers.ReadOnlyField(source="assessment.title")
+    company_tag = serializers.ReadOnlyField(source="assessment.company_tag")
+    duration_minutes = serializers.ReadOnlyField(source="assessment.duration_minutes")
+
+    class Meta:
+        model = AssessmentAttempt
+        fields = [
+            "attempt_id", "assessment", "assessment_title", "company_tag", "duration_minutes",
+            "status", "started_at", "expires_at", "completed_at",
+            "total_score", "max_possible_score", "percentage", "passed",
+            "integrity_score", "tab_switch_count", "fullscreen_exit_count",
+            "screen_share_stop_count", "network_disconnect_count",
+            "skill_breakdown", "section_scores", "saved_drafts",
+            "selected_answers", "current_section", "current_question_index"
+        ]
+
+
+class AssessmentEventSerializer(serializers.ModelSerializer):
+    user_name = serializers.ReadOnlyField(source="user.name")
+    username = serializers.ReadOnlyField(source="user.username")
+
+    class Meta:
+        model = AssessmentEvent
+        fields = ["event_id", "attempt", "user", "username", "user_name", "event_type", "timestamp", "metadata"]
+
+
+class CompanyBlueprintSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CompanyBlueprint
+        fields = [
+            "blueprint_id", "company_name", "slug", "description", "category",
+            "sections_config", "recommended_topics", "duration_minutes",
+            "tier", "icon_name", "is_active", "created_at"
+        ]
 
 
 class CodeSubmissionSerializer(serializers.ModelSerializer):
@@ -286,6 +480,9 @@ class DiscussionListSerializer(serializers.ModelSerializer):
             "discussion_id", "user", "author_name", "author_profile", "title", "content", "code", "language", "tag", "likes_count",
             "comments_count", "is_solved", "is_pinned", "created_at"
         ]
+        read_only_fields = [
+            "discussion_id", "user", "author_name", "author_profile", "likes_count", "comments_count", "is_solved", "is_pinned", "created_at"
+        ]
 
 
 class DiscussionDetailSerializer(serializers.ModelSerializer):
@@ -299,6 +496,10 @@ class DiscussionDetailSerializer(serializers.ModelSerializer):
         fields = [
             "discussion_id", "user", "author_name", "author_profile", "title", "content", "code", "language",
             "tag", "likes_count", "comments_count", "is_solved", "is_pinned",
+            "created_at", "replies"
+        ]
+        read_only_fields = [
+            "discussion_id", "user", "author_name", "author_profile", "likes_count", "comments_count", "is_solved", "is_pinned",
             "created_at", "replies"
         ]
 
@@ -331,11 +532,14 @@ class VideoDetailSerializer(serializers.ModelSerializer):
     subtitles = VideoSubtitleSerializer(many=True, read_only=True)
     course_id = serializers.CharField(write_only=True, required=False, allow_null=True, allow_blank=True)
     course_name = serializers.ReadOnlyField(source="course.name")
+    video_url = serializers.SerializerMethodField()
+    image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Videos
         fields = [
             "video_id", "title", "description", "video", "image",
+            "video_url", "image_url",
             "like", "share", "views", "course", "course_id", "course_name", "subtitles", "created_at"
         ]
         extra_kwargs = {
@@ -346,14 +550,23 @@ class VideoDetailSerializer(serializers.ModelSerializer):
             "course": {"required": False, "allow_null": True}
         }
 
+    def get_video_url(self, obj):
+        from apis.cdn_utils import get_st_video_url
+        return get_st_video_url(obj.video)
+
+    def get_image_url(self, obj):
+        from apis.cdn_utils import get_st_image_url
+        return get_st_image_url(obj.image)
+
 
 class CourseDetailSerializer(serializers.ModelSerializer):
     modules = CourseModuleSerializer(many=True, read_only=True)
+    image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Courses
         fields = [
-            "course_id", "name", "image", "type", "is_paid", "price",
+            "course_id", "name", "image", "image_url", "type", "is_paid", "price",
             "status", "created_at", "modules"
         ]
         extra_kwargs = {
@@ -361,6 +574,10 @@ class CourseDetailSerializer(serializers.ModelSerializer):
             "image": {"required": False, "allow_blank": True},
             "price": {"required": False}
         }
+
+    def get_image_url(self, obj):
+        from apis.cdn_utils import get_st_image_url
+        return get_st_image_url(obj.image)
 
 
 class CourseEnrollmentSerializer(serializers.ModelSerializer):
@@ -378,15 +595,20 @@ class CourseEnrollmentSerializer(serializers.ModelSerializer):
 
 class CompanySerializer(serializers.ModelSerializer):
     roadmaps = CompanyRoadmapSerializer(many=True, read_only=True)
+    image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Companies
-        fields = ["company_id", "name", "image", "description", "status", "roadmaps", "created_at"]
+        fields = ["company_id", "name", "image", "image_url", "description", "status", "roadmaps", "created_at"]
         extra_kwargs = {
             "company_id": {"required": False},
             "image": {"required": False, "allow_blank": True},
             "description": {"required": False, "allow_blank": True}
         }
+
+    def get_image_url(self, obj):
+        from apis.cdn_utils import get_st_image_url
+        return get_st_image_url(obj.image)
 
 
 class InternshipSerializer(serializers.ModelSerializer):

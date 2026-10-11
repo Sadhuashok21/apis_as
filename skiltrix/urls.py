@@ -2,8 +2,18 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 from . import views
 from . import codelab_views
+from . import tutorial_views
+from . import roadmap_views
+from . import hardware_views
+
 
 router = DefaultRouter()
+router.register("hardware/boards", hardware_views.HardwareBoardViewSet, basename="hw-board")
+router.register("hardware/projects", hardware_views.HardwareProjectViewSet, basename="hw-project")
+router.register("hardware/files", hardware_views.HardwareSourceFileViewSet, basename="hw-file")
+router.register("hardware/pcb", hardware_views.PcbProjectViewSet, basename="hw-pcb")
+router.register("hardware/devices", hardware_views.ConnectedDeviceViewSet, basename="hw-device")
+
 router.register("companies", views.CompaniesViewSet, basename="company")
 router.register("internships", views.InternshipViewSet, basename="internship")
 router.register("courses", views.CoursesViewSet, basename="course")
@@ -24,7 +34,10 @@ router.register("profiles", views.UserProfileViewSet, basename="profile")
 router.register("languages", views.LanguageViewSet, basename="language")
 router.register("modules", views.CourseModulesViewSet, basename="module")
 router.register("enrollments", views.CourseEnrollmentsViewSet, basename="enrollment")
-router.register("activity", views.DailyActivityViewSet, basename="activity")
+router.register("assessments", views.CodingAssessmentViewSet, basename="assessment")
+router.register("questions", views.AssessmentQuestionItemViewSet, basename="assessment-question")
+router.register("sections", views.AssessmentSectionViewSet, basename="assessment-section")
+router.register("blueprints", views.CompanyBlueprintViewSet, basename="blueprint")
 router.register("codelab/projects", codelab_views.CodeProjectViewSet, basename="codelab-project")
 
 urlpatterns = [
@@ -37,7 +50,9 @@ urlpatterns = [
     path('profile-resumes', views.profile_resumes, name="profile_resumes"),
     path('profile-education', views.profile_education, name="profile-education"),
     path('videos/', views.videos, name="videos"),
-    path('languages/', views.languages, name="languages"),
+    # Accounts & SSO fallback routes if client requests under apps/skiltrix/api
+    path('api/api/accounts/', include('accounts.urls')),
+    path('api/accounts/', include('accounts.urls')),
     path('api/', include(router.urls)),
     path('api/actions/submit-code/', views.submit_code, name="submit-code"),
     path('api/actions/run-sample-code/', views.run_sample_code, name="run-sample-code"),
@@ -47,7 +62,49 @@ urlpatterns = [
     path('api/actions/progress/', views.user_progress, name="user-progress"),
     path('api/actions/notifications/read/', views.mark_notifications_read, name="mark-notifications-read"),
     path('api/actions/enroll-course/', views.enroll_course, name="enroll-course"),
+    path('api/actions/verify-enrollment-payment/', views.verify_enrollment_payment, name="verify-enrollment-payment"),
+    path('api/actions/cancel-enrollment-payment/', views.cancel_enrollment_payment, name="cancel-enrollment-payment"),
+    path('api/actions/razorpay-config/', views.get_razorpay_config, name="razorpay-config"),
+    path('api/actions/upload-cdn-asset/', views.upload_cdn_asset, name="upload-cdn-asset"),
     path('api/actions/logout/', views.signout, name="logout"),
+
+    # ==============================================================================
+    # SkilTrix Programming Tutorial Platform Endpoints
+    # ==============================================================================
+    path('api/tutorials/tracks/', tutorial_views.list_tutorial_tracks, name="tutorial-tracks-list"),
+    path('api/tutorials/tracks/<str:track_id>/', tutorial_views.get_tutorial_track_curriculum, name="tutorial-track-detail"),
+    path('api/tutorials/lessons/<str:track_id>/<slug:slug>/', tutorial_views.get_tutorial_lesson_detail, name="tutorial-lesson-detail"),
+    path('api/tutorials/progress/', tutorial_views.save_tutorial_progress, name="tutorial-progress-save"),
+    path('api/tutorials/bookmarks/toggle/', tutorial_views.toggle_tutorial_bookmark, name="tutorial-bookmark-toggle"),
+    path('api/tutorials/notes/', tutorial_views.save_tutorial_note, name="tutorial-note-save"),
+    path('api/tutorials/certificate/issue/', tutorial_views.issue_tutorial_certificate, name="tutorial-cert-issue"),
+    path('api/tutorials/certificate/<str:cert_id>/', tutorial_views.get_tutorial_certificate, name="tutorial-cert-detail"),
+    path('api/tutorials/search/', tutorial_views.search_tutorials, name="tutorial-search"),
+
+    # ==============================================================================
+    # SkilTrix Career Learning Roadmaps (Matching Android App Implementation)
+    # ==============================================================================
+    path('api/learning-roadmaps/', roadmap_views.list_career_roadmaps, name="career-roadmaps-list"),
+    path('api/learning-roadmaps/<str:roadmap_key>/', roadmap_views.get_career_roadmap_detail, name="career-roadmap-detail"),
+    path('api/learning-roadmaps/<str:roadmap_key>/stage/<int:stage_number>/toggle/', roadmap_views.toggle_career_stage_progress, name="career-roadmap-stage-toggle"),
+    path('api/learning-roadmaps/<str:roadmap_key>/reset/', roadmap_views.reset_career_roadmap_progress, name="career-roadmap-reset"),
+    path('api/learning-roadmaps/sync/', roadmap_views.sync_career_roadmaps_progress, name="career-roadmaps-sync"),
+    path('learning-roadmaps/', roadmap_views.list_career_roadmaps),
+    path('learning-roadmaps/<str:roadmap_key>/', roadmap_views.get_career_roadmap_detail),
+    path('learning-roadmaps/<str:roadmap_key>/stage/<int:stage_number>/toggle/', roadmap_views.toggle_career_stage_progress),
+    path('learning-roadmaps/<str:roadmap_key>/reset/', roadmap_views.reset_career_roadmap_progress),
+    path('learning-roadmaps/sync/', roadmap_views.sync_career_roadmaps_progress),
+
+
+
+    # Company Mock & Assessment Evaluation Endpoints
+    path('api/actions/start-assessment/', views.start_assessment, name="start-assessment"),
+    path('api/actions/autosave-assessment-draft/', views.autosave_assessment_draft, name="autosave-assessment-draft"),
+    path('api/actions/record-assessment-event/', views.record_assessment_event, name="record-assessment-event"),
+    path('api/actions/submit-assessment/', views.submit_assessment, name="submit-assessment"),
+    path('api/actions/admin-assessment-monitoring/', views.admin_assessment_monitoring, name="admin-assessment-monitoring"),
+    path('api/actions/company-preparation-stats/', views.company_preparation_stats, name="company-preparation-stats"),
+    path('api/problems/<str:problem_id>/explanation/', views.get_problem_explanation, name="problem-explanation"),
 
     # CodeLab Specific Endpoints
     path('api/codelab/projects/<str:project_id>/files/', codelab_views.ProjectFileViewSet.as_view({'get': 'list'}), name="codelab-files-list"),

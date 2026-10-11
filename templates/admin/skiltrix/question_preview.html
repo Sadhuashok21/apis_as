@@ -1,0 +1,229 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+<a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+&rsaquo; <a href="{% url 'admin:app_list' app_label='skiltrix' %}">Company Assessments</a>
+&rsaquo; <a href="{% url 'admin:skiltrix_assessmentquestionitem_changelist' %}">Questions</a>
+&rsaquo; <a href="{% url 'admin:skiltrix_assessmentquestionitem_change' question.pk %}">{{ question.title }}</a>
+&rsaquo; Preview
+</div>
+{% endblock %}
+
+{% block content %}
+<div style="max-width: 1000px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+  
+  <!-- Header Bar -->
+  <div style="background: #1e293b; color: white; padding: 20px 24px; border-radius: 12px 12px 0 0; display: flex; justify-content: space-between; align-items: center;">
+    <div>
+      <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+        <span style="background: #4f46e5; color: white; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600;">
+          {{ question.get_question_type_display }}
+        </span>
+        <span style="background: #0ea5e9; color: white; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600;">
+          {{ question.company_style }}
+        </span>
+        <span style="background: {% if question.difficulty == 'Easy' %}#10b981{% elif question.difficulty == 'Medium' %}#f59e0b{% else %}#ef4444{% endif %}; color: white; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600;">
+          {{ question.difficulty }}
+        </span>
+        <span style="background: #334155; color: #cbd5e1; padding: 3px 10px; border-radius: 20px; font-size: 11px;">
+          Marks: {{ question.marks }} {% if question.negative_marks > 0 %}(-{{ question.negative_marks }}){% endif %}
+        </span>
+      </div>
+      <h2 style="margin: 0; font-size: 22px; font-weight: 700; color: #f8fafc;">{{ question.title }}</h2>
+    </div>
+    <div>
+      <a href="{% url 'admin:skiltrix_assessmentquestionitem_change' question.pk %}" style="background: #475569; color: white; padding: 8px 16px; border-radius: 8px; text-decoration: none; font-size: 13px; font-weight: 600;">
+        &larr; Back to Editor
+      </a>
+    </div>
+  </div>
+
+  <!-- Student Perspective Simulator Card -->
+  <div style="background: #ffffff; border: 1px solid #e2e8f0; border-top: none; padding: 28px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+    <div style="border-bottom: 2px dashed #e2e8f0; padding-bottom: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+      <span style="color: #64748b; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">
+        Student Examination View
+      </span>
+      <span style="color: #64748b; font-size: 12px;">
+        Time Limit: <strong>{{ question.time_limit_seconds }}s</strong> &bull; Memory Limit: <strong>{{ question.memory_limit_mb }}MB</strong>
+      </span>
+    </div>
+
+    <!-- Problem Statement / Prompt -->
+    <div style="color: #1e293b; font-size: 15px; line-height: 1.7; margin-bottom: 24px; white-space: pre-wrap;">{{ question.prompt }}</div>
+
+    {% if question.instructions %}
+    <div style="background: #f8fafc; border-left: 4px solid #6366f1; padding: 12px 16px; margin-bottom: 20px; font-size: 13px; color: #334155;">
+      <strong>Instructions:</strong> {{ question.instructions }}
+    </div>
+    {% endif %}
+
+    <!-- MCQ Options (if multiple choice or select) -->
+    {% if question.options %}
+    <div style="margin-bottom: 24px;">
+      <h4 style="font-size: 13px; color: #475569; text-transform: uppercase; margin-bottom: 12px;">Options</h4>
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        {% for opt in question.options %}
+        <div style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fdfdfd;">
+          <span style="display: inline-flex; width: 26px; height: 26px; border-radius: 50%; background: #e2e8f0; color: #1e293b; font-weight: 700; align-items: center; justify-content: center; font-size: 12px;">
+            {{ opt.id|default:forloop.counter }}
+          </span>
+          <span style="font-size: 14px; color: #1e293b;">{{ opt.text }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Buggy Code / Debugging Details (if Debugging question) -->
+    {% if question.buggy_code %}
+    <div style="margin-bottom: 24px;">
+      <h4 style="font-size: 13px; color: #dc2626; text-transform: uppercase; margin-bottom: 8px;">
+        Buggy Code (Student must diagnose &amp; resolve)
+      </h4>
+      <pre style="background: #0f172a; color: #f87171; padding: 16px; border-radius: 8px; font-family: monospace; font-size: 13px; overflow-x: auto;"><code>{{ question.buggy_code }}</code></pre>
+      {% if question.error_message %}
+      <div style="margin-top: 8px; background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; padding: 10px 14px; border-radius: 6px; font-family: monospace; font-size: 12px;">
+        <strong>Error Encountered:</strong> {{ question.error_message }}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Starter Code (if Coding question) -->
+    {% if question.starter_code %}
+    <div style="margin-bottom: 24px;">
+      <h4 style="font-size: 13px; color: #475569; text-transform: uppercase; margin-bottom: 8px;">
+        Code Editor Starter Stub ({{ question.language|upper }})
+      </h4>
+      <pre style="background: #0f172a; color: #38bdf8; padding: 16px; border-radius: 8px; font-family: monospace; font-size: 13px; overflow-x: auto;"><code>{{ question.starter_code }}</code></pre>
+    </div>
+    {% endif %}
+
+    <!-- Input/Output/Constraints -->
+    {% if question.input_format or question.output_format or question.constraints %}
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px;">
+      {% if question.input_format %}
+      <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 14px; border-radius: 8px;">
+        <h5 style="margin: 0 0 6px 0; font-size: 12px; color: #64748b; text-transform: uppercase;">Input Format</h5>
+        <div style="font-size: 13px; color: #1e293b; white-space: pre-wrap;">{{ question.input_format }}</div>
+      </div>
+      {% endif %}
+      {% if question.output_format %}
+      <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 14px; border-radius: 8px;">
+        <h5 style="margin: 0 0 6px 0; font-size: 12px; color: #64748b; text-transform: uppercase;">Output Format</h5>
+        <div style="font-size: 13px; color: #1e293b; white-space: pre-wrap;">{{ question.output_format }}</div>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Public Test Cases -->
+    {% if public_test_cases %}
+    <div style="margin-bottom: 24px;">
+      <h4 style="font-size: 13px; color: #475569; text-transform: uppercase; margin-bottom: 12px;">Public Sample Test Cases</h4>
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        {% for tc in public_test_cases %}
+        <div style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+          <div style="background: #f1f5f9; padding: 8px 14px; font-size: 12px; font-weight: 600; color: #475569;">
+            Sample Case #{{ forloop.counter }}
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px; font-family: monospace; font-size: 12px;">
+            <div>
+              <span style="color: #64748b; display: block; margin-bottom: 4px;">Input:</span>
+              <pre style="margin: 0; background: #f8fafc; padding: 8px; border-radius: 4px; border: 1px solid #e2e8f0;">{{ tc.input_data }}</pre>
+            </div>
+            <div>
+              <span style="color: #64748b; display: block; margin-bottom: 4px;">Expected Output:</span>
+              <pre style="margin: 0; background: #f8fafc; padding: 8px; border-radius: 4px; border: 1px solid #e2e8f0;">{{ tc.expected_output }}</pre>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ADMIN CONFIDENTIAL INSPECTION BOX (NEVER EXPOSED TO CANDIDATES) -->
+  <div style="margin-top: 24px; background: #fffbeb; border: 2px solid #f59e0b; border-radius: 12px; padding: 24px;">
+    <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #fde68a; padding-bottom: 12px; margin-bottom: 16px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="background: #f59e0b; color: white; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 800;">
+          ADMIN CONFIDENTIAL
+        </span>
+        <span style="color: #92400e; font-size: 13px; font-weight: 700;">
+          Staff-Only Ground Truth &amp; Evaluation Data
+        </span>
+      </div>
+      <span style="color: #b45309; font-size: 11px;">
+        Strictly hidden from all student APIs and endpoints
+      </span>
+    </div>
+
+    <!-- Correct Answers (for MCQ) -->
+    {% if question.correct_answers %}
+    <div style="margin-bottom: 18px;">
+      <h5 style="color: #92400e; font-size: 12px; text-transform: uppercase; margin: 0 0 6px 0;">Correct Answer Key</h5>
+      <div style="background: #ffffff; border: 1px solid #fde68a; padding: 10px 14px; border-radius: 6px; font-weight: 700; color: #15803d; font-size: 14px;">
+        {{ question.correct_answers|join:", " }}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Reference Solution -->
+    {% if question.reference_solution %}
+    <div style="margin-bottom: 18px;">
+      <h5 style="color: #92400e; font-size: 12px; text-transform: uppercase; margin: 0 0 6px 0;">Official Reference Solution</h5>
+      <pre style="background: #1e1e2e; color: #a6e3a1; padding: 16px; border-radius: 8px; font-family: monospace; font-size: 12px; overflow-x: auto; margin: 0;"><code>{{ question.reference_solution }}</code></pre>
+    </div>
+    {% endif %}
+
+    <!-- Expected Fix (Debugging) -->
+    {% if question.expected_fix %}
+    <div style="margin-bottom: 18px;">
+      <h5 style="color: #92400e; font-size: 12px; text-transform: uppercase; margin: 0 0 6px 0;">Expected Fix / Diagnosis</h5>
+      <div style="background: #ffffff; border: 1px solid #fde68a; padding: 12px; border-radius: 6px; font-size: 13px; color: #1e293b; white-space: pre-wrap;">{{ question.expected_fix }}</div>
+    </div>
+    {% endif %}
+
+    <!-- Hidden Test Cases -->
+    {% if hidden_test_cases %}
+    <div>
+      <h5 style="color: #92400e; font-size: 12px; text-transform: uppercase; margin: 0 0 8px 0;">
+        Hidden Evaluation Test Cases ({{ hidden_test_cases|length }} total)
+      </h5>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        {% for tc in hidden_test_cases %}
+        <div style="background: #ffffff; border: 1px solid #fed7aa; border-radius: 6px; padding: 10px 12px; font-family: monospace; font-size: 11px;">
+          <div style="color: #c2410c; font-weight: 700; margin-bottom: 4px;">Hidden Test Case #{{ forloop.counter }} (Weight: {{ tc.weight }})</div>
+          <div><strong>Input:</strong> {{ tc.input_data }}</div>
+          <div><strong>Expected Output:</strong> {{ tc.expected_output }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if question.explanation %}
+    <div style="margin-top: 18px;">
+      <h5 style="color: #92400e; font-size: 12px; text-transform: uppercase; margin: 0 0 6px 0;">Educational Solution Explanation</h5>
+      <div style="background: #ffffff; border: 1px solid #fde68a; padding: 12px; border-radius: 6px; font-size: 13px; color: #334155; line-height: 1.6;">{{ question.explanation }}</div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Bottom Action Buttons -->
+  <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px;">
+    <a href="{% url 'admin:skiltrix_assessmentquestionitem_change' question.pk %}" style="background: #64748b; color: white; padding: 10px 18px; border-radius: 8px; text-decoration: none; font-size: 13px; font-weight: 600;">
+      Edit Question
+    </a>
+    <a href="{% url 'admin:skiltrix_assessmentquestionitem_test' question.pk %}" style="background: #10b981; color: white; padding: 10px 18px; border-radius: 8px; text-decoration: none; font-size: 13px; font-weight: 600;">
+      &bull; Run Automated Test Suite
+    </a>
+  </div>
+</div>
+{% endblock %}
+

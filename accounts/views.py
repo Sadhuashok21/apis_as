@@ -49,6 +49,7 @@ from .tokens import (
     verify_pkce_challenge,
     issue_sso_access_token,
 )
+from .authentication import GlobalAccountsAuthentication
 
 
 User = get_user_model()
@@ -557,6 +558,7 @@ def accounts_sso_check(request):
 
 
 @api_view(["POST"])
+@authentication_classes([GlobalAccountsAuthentication])
 @permission_classes([AllowAny])
 def oauth_authorize(request):
     """
@@ -655,6 +657,7 @@ def oauth_authorize(request):
 
 
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def oauth_token(request):
     """
@@ -710,7 +713,20 @@ def oauth_token(request):
         }, status=status.HTTP_400_BAD_REQUEST)
 
     # Validate redirect_uri matches the one provided during authorize
-    if auth_code.redirect_uri.rstrip("/").lower() != redirect_uri.rstrip("/").lower():
+    def _is_matching_redirect(saved: str, supplied: str) -> bool:
+        if saved.rstrip("/").lower() == supplied.rstrip("/").lower():
+            return True
+        try:
+            p1, p2 = urlparse(saved), urlparse(supplied)
+            if p1.path.rstrip("/").lower() == p2.path.rstrip("/").lower():
+                if getattr(settings, "DEBUG", False) and p1.port == p2.port:
+                    if p1.hostname in ("localhost", "127.0.0.1") and p2.hostname in ("localhost", "127.0.0.1"):
+                        return True
+        except Exception:
+            pass
+        return False
+
+    if not _is_matching_redirect(auth_code.redirect_uri, redirect_uri):
         return Response({
             "status": False,
             "error": "invalid_grant",

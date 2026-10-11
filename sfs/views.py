@@ -178,6 +178,12 @@ class Upload(View):
                 ContentType=zipfile.content_type,
             )
 
+            data.update({
+                "image_url": f"https://cdn.ascentracoresolutions.com/sfs/images/{new_image}",
+                "zip_url": f"https://cdn.ascentracoresolutions.com/sfs/zipfiles/{new_zip}",
+                "bp_id": bp_id,
+            })
+
             return JsonResponse(data, safe=False)        
         
         else:

@@ -35,7 +35,8 @@ def download(request, bp_id):
     blueprint.save()
 
 
-    file_url = "https://cdn.ascentracoresolutions.com/sfs/zipfiles/3emqqip1hf9sdj5v8cab.zip"
+    zip_name = blueprint.zipfiles if blueprint.zipfiles else "3emqqip1hf9sdj5v8cab.zip"
+    file_url = f"https://cdn.ascentracoresolutions.com/sfs/zipfiles/{zip_name}"
     if request.user.is_authenticated:
 
         insert_activity(get_client_ip(request), version, "blueprint-downloaded", "website", "sfs", request.user.user_id)
