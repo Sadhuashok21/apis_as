@@ -21,6 +21,20 @@ class AllUsers(AbstractBaseUser):
 
     objects = UserManager()
 
+    @property
+    def is_staff(self):
+        return str(self.user_type).lower() in ("admin", "staff") or str(self.type).lower() in ("admin", "staff")
+
+    @property
+    def is_superuser(self):
+        return str(self.user_type).lower() in ("admin", "super") or str(self.type).lower() in ("admin", "super")
+
+    def has_perm(self, perm, obj=None):
+        return self.is_staff or self.is_superuser
+
+    def has_module_perms(self, app_label):
+        return self.is_staff or self.is_superuser
+
     class Meta:
         managed = True
         db_table = 'all_users'

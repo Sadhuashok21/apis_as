@@ -519,10 +519,18 @@ class CodingProblems(models.Model):
         ("Hard", "Hard"),
     )
 
+    QUESTION_TYPES = (
+        ("algorithmic", "Algorithmic Problem"),
+        ("debugging", "Backend & Code Debugging"),
+        ("sql", "SQL Query Assessment"),
+    )
+
     problem_id = models.CharField(max_length=50, unique=True)
     title = models.CharField(max_length=255)
     slug = models.SlugField(max_length=255, unique=True)
     difficulty = models.CharField(max_length=20, choices=DIFFICULTY_CHOICES, default="Easy")
+    question_type = models.CharField(max_length=30, choices=QUESTION_TYPES, default="algorithmic")
+    category = models.CharField(max_length=80, default="DSA", help_text="e.g. DSA, Backend Debugging, SQL, DRF")
     topics = models.JSONField(default=list, blank=True)
     acceptance_rate = models.CharField(max_length=10, default="65%")
     points = models.IntegerField(default=100)
@@ -530,23 +538,34 @@ class CodingProblems(models.Model):
     input_format = models.TextField(blank=True)
     output_format = models.TextField(blank=True)
     constraints = models.TextField(blank=True)
-    
+    expected_complexity = models.CharField(max_length=120, blank=True, default="", help_text="e.g. Time: O(n), Space: O(n)")
+
+    # Error simulation and realistic debugging fields
+    error_snippet = models.TextField(blank=True, default="", help_text="Simulated error traceback or terminal error message")
+    expected_behavior = models.TextField(blank=True, default="", help_text="Description of expected correct behavior")
+
+    # Limits
+    time_limit_seconds = models.FloatField(default=3.0)
+    memory_limit_mb = models.IntegerField(default=128)
+
     # Starter code templates per programming language
     starter_python = models.TextField(blank=True)
     starter_java = models.TextField(blank=True)
     starter_cpp = models.TextField(blank=True)
     starter_c = models.TextField(blank=True)
     starter_javascript = models.TextField(blank=True)
+    starter_sql = models.TextField(blank=True)
     solution_code = models.TextField(blank=True)
+    explanation = models.TextField(blank=True, default="", help_text="Post-submission educational explanation & optimal complexity breakdown")
     hints = models.JSONField(default=list, blank=True)
-    
+
     solved_count = models.IntegerField(default=0)
     total_attempts = models.IntegerField(default=0)
     status = models.CharField(max_length=20, default="active")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.title} ({self.difficulty})"
+        return f"{self.title} ({self.difficulty}) - {self.category}"
 
     class Meta:
         managed = True
@@ -554,6 +573,15 @@ class CodingProblems(models.Model):
 
 
 class TestCases(models.Model):
+    TEST_CATEGORIES = (
+        ("Sample", "Sample Test Case"),
+        ("Basic", "Basic Correctness"),
+        ("Edge Case", "Edge Case"),
+        ("Boundary", "Boundary Condition"),
+        ("Performance", "Performance / Scale"),
+        ("Invalid Assumption", "Invalid Assumption"),
+    )
+
     test_case_id = models.CharField(max_length=50, unique=True)
     problem = models.ForeignKey(
         CodingProblems,
@@ -562,10 +590,12 @@ class TestCases(models.Model):
         on_delete=models.CASCADE,
         related_name="test_cases"
     )
-    input_data = models.TextField()
-    expected_output = models.TextField()
+    input_data = models.TextField(blank=True, default="")
+    expected_output = models.TextField(blank=True, default="")
     is_sample = models.BooleanField(default=False)
     is_hidden = models.BooleanField(default=False)
+    category = models.CharField(max_length=40, choices=TEST_CATEGORIES, default="Basic")
+    explanation = models.CharField(max_length=255, blank=True, default="", help_text="Diagnostic reason shown only when failed in hidden tests")
     points = models.IntegerField(default=10)
     order = models.IntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -574,6 +604,506 @@ class TestCases(models.Model):
         managed = True
         db_table = "st_test_cases"
         ordering = ["order"]
+
+
+# ==============================================================================
+# 2.1 COMPANY MOCK & CODING ASSESSMENTS PLATFORM
+# ==============================================================================
+
+class CodingAssessment(models.Model):
+    CATEGORY_CHOICES = (
+        ("Company Mocks", "Company Mocks"),
+        ("Coding Assessments", "Coding Assessments"),
+        ("Aptitude Assessments", "Aptitude Assessments"),
+        ("Technical Assessments", "Technical Assessments"),
+        ("Debugging Assessments", "Debugging Assessments"),
+        ("SQL Assessments", "SQL Assessments"),
+        ("Backend Assessments", "Backend Assessments"),
+        ("Frontend Assessments", "Frontend Assessments"),
+        ("DSA Assessments", "DSA Assessments"),
+        ("Mixed Placement Assessments", "Mixed Placement Assessments"),
+    )
+
+    assessment_id = models.CharField(max_length=50, unique=True)
+    title = models.CharField(max_length=255)
+    slug = models.SlugField(max_length=255, unique=True)
+    category = models.CharField(max_length=50, choices=CATEGORY_CHOICES, default="Company Mocks")
+    company_tag = models.CharField(max_length=60, default="General SDE", help_text="e.g. Amazon-style, Deloitte-style, TCS-style")
+    description = models.TextField()
+    difficulty = models.CharField(max_length=20, default="Medium", choices=[("Easy", "Easy"), ("Medium", "Medium"), ("Hard", "Hard")])
+    duration_minutes = models.IntegerField(default=90, help_text="Total assessment countdown time in minutes")
+    pass_percentage = models.IntegerField(default=70)
+    total_marks = models.FloatField(default=100.0)
+    negative_marking_percentage = models.FloatField(default=0.0, help_text="Penalty ratio for incorrect MCQ/Aptitude answers e.g. 0.25")
+
+    # Company Mock & Proctoring Configuration
+    is_company_mock = models.BooleanField(default=True)
+    is_pro_only = models.BooleanField(default=False, help_text="Gated to SkilTrix Pro subscription")
+    proctoring_enabled = models.BooleanField(default=True)
+    require_fullscreen = models.BooleanField(default=True)
+    require_screen_share = models.BooleanField(default=True)
+    max_tab_switches = models.IntegerField(default=3)
+    max_fullscreen_exits = models.IntegerField(default=3)
+    allow_return_to_previous = models.BooleanField(default=True)
+    auto_submit_on_violations = models.BooleanField(default=False)
+    randomize_questions = models.BooleanField(default=False)
+    randomize_options = models.BooleanField(default=False, help_text="Randomize option order for multiple-choice questions")
+
+    active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.title} ({self.company_tag} - {self.duration_minutes}m)"
+
+    class Meta:
+        managed = True
+        db_table = "st_coding_assessments"
+        verbose_name = "Assessment"
+        verbose_name_plural = "Assessments"
+
+
+class CompanyMock(CodingAssessment):
+    class Meta:
+        proxy = True
+        verbose_name = "Company Mock"
+        verbose_name_plural = "Company Mocks"
+
+
+class QuestionPool(models.Model):
+    DIFFICULTY_CHOICES = (
+        ("Easy", "Easy"),
+        ("Medium", "Medium"),
+        ("Hard", "Hard"),
+    )
+
+    pool_id = models.CharField(max_length=64, unique=True, default=uuid.uuid4)
+    name = models.CharField(max_length=150)
+    slug = models.SlugField(max_length=150, unique=True)
+    description = models.TextField(blank=True, default="")
+    category = models.CharField(max_length=80, default="DSA", help_text="e.g. DSA, Django, SQL, Aptitude")
+    company_style = models.CharField(max_length=60, default="General SDE")
+    difficulty = models.CharField(max_length=20, choices=DIFFICULTY_CHOICES, default="Medium")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = True
+        db_table = "st_question_pools"
+        verbose_name = "Question Pool"
+        verbose_name_plural = "Question Pools"
+
+    def __str__(self):
+        return f"{self.name} ({self.category} - {self.difficulty})"
+
+
+class AssessmentSection(models.Model):
+    SECTION_TYPES = (
+        ("aptitude", "Quantitative Aptitude"),
+        ("reasoning", "Logical Reasoning"),
+        ("coding", "Coding & DSA"),
+        ("debugging", "Backend & Code Debugging"),
+        ("sql", "SQL Query Assessment"),
+        ("technical", "CS Fundamentals & Tech MCQ"),
+    )
+
+    section_id = models.CharField(max_length=64, unique=True, default=uuid.uuid4)
+    assessment = models.ForeignKey(
+        CodingAssessment,
+        db_column="assessment_id",
+        to_field="assessment_id",
+        on_delete=models.CASCADE,
+        related_name="sections"
+    )
+    title = models.CharField(max_length=150)
+    section_type = models.CharField(max_length=40, choices=SECTION_TYPES, default="coding")
+    order = models.IntegerField(default=1)
+    duration_minutes = models.IntegerField(default=0, help_text="Sectional timer in minutes; 0 uses overall exam timer")
+    instructions = models.TextField(blank=True, default="")
+    total_marks = models.FloatField(default=0.0)
+
+    # Dynamic Question Pool linkage
+    question_pool = models.ForeignKey(
+        QuestionPool,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="assigned_sections",
+        help_text="Optional pool from which questions are drawn dynamically"
+    )
+    pool_question_count = models.IntegerField(
+        default=0,
+        help_text="Number of questions to randomly pick from this pool for each student attempt"
+    )
+
+    class Meta:
+        managed = True
+        db_table = "st_assessment_sections"
+        ordering = ["order"]
+        verbose_name = "Section"
+        verbose_name_plural = "Sections"
+
+    def __str__(self):
+        return f"{self.assessment.assessment_id} - Sec {self.order}: {self.title}"
+
+
+class AssessmentQuestionItem(models.Model):
+    QUESTION_TYPES = (
+        ("mcq_single", "Multiple Choice"),
+        ("mcq_multi", "Multiple Select"),
+        ("coding", "Coding"),
+        ("sql", "SQL"),
+        ("debugging", "Debugging"),
+        ("output_prediction", "Output Prediction"),
+        ("code_correction", "Code Correction"),
+        ("aptitude", "Aptitude"),
+        ("reasoning", "Logical Reasoning"),
+        ("cs_fundamentals", "CS Fundamentals"),
+        ("django_debugging", "Django Debugging"),
+        ("backend_debugging", "Backend Debugging"),
+        ("numerical", "Numerical Answer"),
+    )
+
+    DIFFICULTY_CHOICES = (
+        ("Easy", "Easy"),
+        ("Medium", "Medium"),
+        ("Hard", "Hard"),
+    )
+
+    STATUS_CHOICES = (
+        ("Draft", "Draft"),
+        ("Published", "Published"),
+        ("Archived", "Archived"),
+    )
+
+    ASSESSMENT_STYLES = (
+        ("General SDE", "General SDE"),
+        ("Amazon-style", "Amazon-style"),
+        ("Deloitte-style", "Deloitte-style"),
+        ("Accenture-style", "Accenture-style"),
+        ("Cognizant-style", "Cognizant-style"),
+        ("Infosys-style", "Infosys-style"),
+        ("TCS-style", "TCS-style"),
+        ("Wipro-style", "Wipro-style"),
+        ("Capgemini-style", "Capgemini-style"),
+        ("Microsoft-style", "Microsoft-style"),
+        ("Google-style", "Google-style"),
+        ("Custom", "Custom"),
+    )
+
+    SECTION_ASSIGNMENTS = (
+        ("Aptitude", "Aptitude"),
+        ("Logical Reasoning", "Logical Reasoning"),
+        ("Technical", "Technical"),
+        ("Coding", "Coding"),
+        ("Debugging", "Debugging"),
+        ("SQL", "SQL"),
+        ("CS Fundamentals", "CS Fundamentals"),
+        ("Backend", "Backend"),
+        ("Frontend", "Frontend"),
+        ("DSA", "DSA"),
+    )
+
+    item_id = models.CharField(max_length=64, unique=True, default=uuid.uuid4)
+    assessment = models.ForeignKey(
+        CodingAssessment,
+        db_column="assessment_id",
+        to_field="assessment_id",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="question_items"
+    )
+    section = models.ForeignKey(
+        AssessmentSection,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="items"
+    )
+    pool = models.ForeignKey(
+        QuestionPool,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="questions"
+    )
+    problem = models.ForeignKey(
+        CodingProblems,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="assessment_item_links"
+    )
+
+    question_type = models.CharField(max_length=30, choices=QUESTION_TYPES, default="mcq_single")
+    title = models.CharField(max_length=255)
+    slug = models.SlugField(max_length=255, blank=True, default="")
+    category = models.CharField(max_length=80, default="DSA")
+    subcategory = models.CharField(max_length=80, blank=True, default="")
+    difficulty = models.CharField(max_length=20, choices=DIFFICULTY_CHOICES, default="Medium")
+    company_style = models.CharField(max_length=60, choices=ASSESSMENT_STYLES, default="General SDE")
+    section_assignment = models.CharField(max_length=60, choices=SECTION_ASSIGNMENTS, blank=True, default="Coding")
+    tags = models.JSONField(default=list, blank=True)
+    language = models.CharField(max_length=50, blank=True, default="python")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="Draft")
+
+    prompt = models.TextField(help_text="Problem statement or question markdown")
+    instructions = models.TextField(blank=True, default="")
+    marks = models.FloatField(default=10.0)
+    negative_marks = models.FloatField(default=0.0)
+    time_limit_seconds = models.FloatField(default=3.0)
+    memory_limit_mb = models.IntegerField(default=128)
+    expected_complexity = models.CharField(max_length=120, blank=True, default="")
+
+    # Question Content Details
+    input_format = models.TextField(blank=True, default="")
+    output_format = models.TextField(blank=True, default="")
+    constraints = models.TextField(blank=True, default="")
+    examples = models.JSONField(default=list, blank=True)
+    hints = models.JSONField(default=list, blank=True)
+    topics = models.JSONField(default=list, blank=True)
+    explanation = models.TextField(blank=True, default="")
+
+    # MCQ & Multiple Select
+    options = models.JSONField(default=list, blank=True, help_text="List of choices: [{'id': 'A', 'text': '...'}]")
+    correct_answers = models.JSONField(default=list, blank=True, help_text="Correct option IDs e.g. ['B'] or ['A', 'C'] - kept backend-only")
+
+    # Coding & Correction
+    starter_code = models.TextField(blank=True, default="")
+    function_signature = models.CharField(max_length=255, blank=True, default="")
+    reference_solution = models.TextField(blank=True, default="", help_text="Confidential Reference Solution - NEVER exposed through student APIs")
+
+    # Django Debugging & Backend Debugging
+    buggy_code = models.TextField(blank=True, default="")
+    error_message = models.TextField(blank=True, default="")
+    expected_behavior = models.TextField(blank=True, default="")
+    debugging_task = models.TextField(blank=True, default="")
+    environment_info = models.CharField(max_length=255, blank=True, default="Django 5.0, Python 3.11, PostgreSQL")
+    framework_version = models.CharField(max_length=80, blank=True, default="Django 5.0")
+    expected_fix = models.TextField(blank=True, default="")
+
+    # Versioning & Ordering
+    order = models.IntegerField(default=1)
+    version = models.IntegerField(default=1)
+    parent_question = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="versions")
+    created_at = models.DateTimeField(auto_now_add=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True, null=True)
+
+    class Meta:
+        managed = True
+        db_table = "st_assessment_question_items"
+        ordering = ["order"]
+        verbose_name = "Question"
+        verbose_name_plural = "Questions"
+
+    def save(self, *args, **kwargs):
+        if not self.item_id:
+            import uuid
+            self.item_id = f"q_{uuid.uuid4().hex[:12]}"
+        if not self.slug:
+            from django.utils.text import slugify
+            base = slugify(self.title)[:200] or "question"
+            self.slug = f"{base}-{str(self.item_id)[-6:]}"
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        asmt_tag = self.assessment.assessment_id if self.assessment else "Pool/Bank"
+        return f"{asmt_tag} - Q{self.order}: {self.title} ({self.question_type})"
+
+
+class AssessmentTestCase(models.Model):
+    TEST_TYPES = (
+        ("Public", "Public Test Case"),
+        ("Hidden", "Hidden Test Case"),
+    )
+
+    case_id = models.CharField(max_length=64, unique=True, default=uuid.uuid4)
+    question = models.ForeignKey(
+        AssessmentQuestionItem,
+        on_delete=models.CASCADE,
+        related_name="test_cases"
+    )
+    input_data = models.TextField(blank=True, default="")
+    expected_output = models.TextField(blank=True, default="")
+    test_type = models.CharField(max_length=20, choices=TEST_TYPES, default="Public")
+    weight = models.FloatField(default=10.0)
+    is_active = models.BooleanField(default=True)
+    explanation = models.CharField(max_length=255, blank=True, default="")
+    order = models.IntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = True
+        db_table = "st_assessment_test_cases"
+        ordering = ["order"]
+        verbose_name = "Test Case"
+        verbose_name_plural = "Test Cases"
+
+    def __str__(self):
+        return f"TC #{self.order} ({self.test_type}) for {self.question.title}"
+
+
+class AssessmentQuestion(models.Model):
+    item_id = models.CharField(max_length=50, unique=True)
+    assessment = models.ForeignKey(
+        CodingAssessment,
+        db_column="assessment_id",
+        to_field="assessment_id",
+        on_delete=models.CASCADE,
+        related_name="questions"
+    )
+    problem = models.ForeignKey(
+        CodingProblems,
+        db_column="problem_id",
+        to_field="problem_id",
+        on_delete=models.CASCADE,
+        related_name="assessment_assignments"
+    )
+    order = models.IntegerField(default=1)
+    marks = models.IntegerField(default=100)
+
+    class Meta:
+        managed = True
+        db_table = "st_assessment_questions"
+        ordering = ["order"]
+        unique_together = ("assessment", "problem")
+
+
+class AssessmentAttempt(models.Model):
+    STATUS_CHOICES = (
+        ("in_progress", "In Progress"),
+        ("completed", "Completed"),
+        ("timed_out", "Timed Out"),
+        ("disqualified", "Disqualified (Integrity Violations)"),
+    )
+
+    attempt_id = models.CharField(max_length=64, primary_key=True)
+    user = models.ForeignKey(
+        AllUsers,
+        db_column="user_id",
+        to_field="user_id",
+        on_delete=models.CASCADE,
+        related_name="assessment_attempts"
+    )
+    assessment = models.ForeignKey(
+        CodingAssessment,
+        db_column="assessment_id",
+        to_field="assessment_id",
+        on_delete=models.CASCADE,
+        related_name="attempts"
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="in_progress")
+    started_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    completed_at = models.DateTimeField(null=True, blank=True)
+    total_score = models.FloatField(default=0.0)
+    max_possible_score = models.FloatField(default=0.0)
+    percentage = models.FloatField(default=0.0)
+    passed = models.BooleanField(default=False)
+
+    # Category skill breakdown (Problem Solving, Data Structures, Algorithms, Debugging, Backend, Aptitude)
+    skill_breakdown = models.JSONField(default=dict, blank=True)
+    # Section score breakdown { "Coding": { "earned": 40, "total": 50 } }
+    section_scores = models.JSONField(default=dict, blank=True)
+
+    # Saved responses
+    # { "item_id": ["A"], "prob_id": { "language": "python", "code": "..." } }
+    selected_answers = models.JSONField(default=dict, blank=True)
+    # Saved code drafts per problem for backward compatibility
+    saved_drafts = models.JSONField(default=dict, blank=True)
+    # Specific randomized question assignment for this candidate session
+    assigned_question_ids = models.JSONField(default=list, blank=True)
+
+    current_section = models.CharField(max_length=100, blank=True, default="")
+    current_question_index = models.IntegerField(default=0)
+
+    # Integrity & Proctoring Telemetry
+    integrity_score = models.FloatField(default=100.0)
+    tab_switch_count = models.IntegerField(default=0)
+    fullscreen_exit_count = models.IntegerField(default=0)
+    screen_share_stop_count = models.IntegerField(default=0)
+    network_disconnect_count = models.IntegerField(default=0)
+
+    class Meta:
+        managed = True
+        db_table = "st_assessment_attempts"
+        ordering = ["-started_at"]
+        verbose_name = "Attempt"
+        verbose_name_plural = "Attempts"
+
+
+class AssessmentEvent(models.Model):
+    EVENT_TYPES = (
+        ("TAB_SWITCH", "Tab Switch / Window Blur"),
+        ("FULLSCREEN_EXIT", "Fullscreen Exited"),
+        ("SCREEN_SHARE_STARTED", "Screen Sharing Started"),
+        ("SCREEN_SHARE_STOPPED", "Screen Sharing Stopped"),
+        ("NETWORK_DISCONNECT", "Network Disconnected"),
+        ("NETWORK_RECONNECT", "Network Reconnected"),
+        ("PAGE_RELOAD", "Page Reload Attempt"),
+        ("MULTIPLE_SESSION", "Multiple Sessions Detected"),
+        ("SUSPICIOUS_ACTIVITY", "Suspicious Rapid Changes"),
+    )
+
+    event_id = models.CharField(max_length=64, primary_key=True)
+    attempt = models.ForeignKey(
+        AssessmentAttempt,
+        db_column="attempt_id",
+        to_field="attempt_id",
+        on_delete=models.CASCADE,
+        related_name="integrity_events"
+    )
+    user = models.ForeignKey(
+        AllUsers,
+        db_column="user_id",
+        to_field="user_id",
+        on_delete=models.CASCADE,
+        related_name="assessment_events"
+    )
+    assessment = models.ForeignKey(
+        CodingAssessment,
+        db_column="assessment_id",
+        to_field="assessment_id",
+        on_delete=models.CASCADE,
+        related_name="events"
+    )
+    event_type = models.CharField(max_length=40, choices=EVENT_TYPES)
+    timestamp = models.DateTimeField(auto_now_add=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        managed = True
+        db_table = "st_assessment_events"
+        ordering = ["-timestamp"]
+        verbose_name = "Integrity Event"
+        verbose_name_plural = "Integrity Events"
+
+    def __str__(self):
+        return f"[{self.event_type}] {self.user.username} at {self.timestamp}"
+
+
+class CompanyBlueprint(models.Model):
+    blueprint_id = models.CharField(max_length=50, unique=True)
+    company_name = models.CharField(max_length=100)
+    slug = models.SlugField(max_length=100, unique=True)
+    description = models.TextField()
+    category = models.CharField(max_length=50, default="Company Mocks")
+    sections_config = models.JSONField(default=list)
+    recommended_topics = models.JSONField(default=list)
+    duration_minutes = models.IntegerField(default=90)
+    tier = models.CharField(max_length=20, default="free", choices=[("free", "Free"), ("pro", "Pro")])
+    icon_name = models.CharField(max_length=50, default="briefcase")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = True
+        db_table = "st_company_blueprints"
+        verbose_name = "Companies / Blueprint"
+        verbose_name_plural = "Companies / Blueprints"
+
+    def __str__(self):
+        return f"{self.company_name} ({self.tier})"
 
 
 class CodeSubmissions(models.Model):
@@ -620,6 +1150,8 @@ class CodeSubmissions(models.Model):
         managed = True
         db_table = "st_code_submissions"
         ordering = ["-created_at"]
+        verbose_name = "Submission"
+        verbose_name_plural = "Submissions"
 
 
 class UserProblemStatus(models.Model):
@@ -927,6 +1459,8 @@ class MockInterviewSessions(models.Model):
     class Meta:
         managed = True
         db_table = "st_mock_interviews"
+        verbose_name = "Mock Interview Session"
+        verbose_name_plural = "Mock Interview Sessions"
 
 
 # ==============================================================================
@@ -1128,6 +1662,61 @@ class CourseEnrollments(models.Model):
         managed = True
         db_table = "st_course_enrollments"
         unique_together = ("user", "course")
+        verbose_name = "Course Enrollment"
+        verbose_name_plural = "Course Enrollments"
+
+    def __str__(self):
+        return f"{self.user.username} enrolled in {self.course.name}"
+
+
+class CoursePaymentOrder(models.Model):
+    STATUSES = [
+        ("pending", "Pending"),
+        ("paid", "Paid"),
+        ("failed", "Failed"),
+        ("cancelled", "Cancelled"),
+    ]
+    user = models.ForeignKey(
+        AllUsers,
+        on_delete=models.CASCADE,
+        to_field="user_id",
+        db_column="user_id",
+        related_name="course_payment_orders",
+    )
+    course = models.ForeignKey(
+        Courses,
+        on_delete=models.CASCADE,
+        to_field="course_id",
+        db_column="course_id",
+        related_name="payment_orders",
+    )
+    enrollment = models.ForeignKey(
+        CourseEnrollments,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="payment_orders",
+    )
+    local_order_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    razorpay_order_id = models.CharField(max_length=80, unique=True)
+    razorpay_payment_id = models.CharField(max_length=80, unique=True, null=True, blank=True)
+    razorpay_signature = models.CharField(max_length=128, null=True, blank=True)
+    amount_paise = models.PositiveIntegerField()
+    currency = models.CharField(max_length=3, default="INR")
+    status = models.CharField(max_length=12, choices=STATUSES, default="pending")
+    failure_reason = models.CharField(max_length=255, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    paid_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        managed = True
+        db_table = "st_course_payment_orders"
+        ordering = ["-created_at"]
+        verbose_name = "Course Payment Order"
+        verbose_name_plural = "Course Payment Orders"
+
+    def __str__(self):
+        return f"{self.course.name} - {self.user.username} ({self.status}) [₹{self.amount_paise / 100:.2f}]"
 
 
 class VideoSubtitles(models.Model):
@@ -1376,3 +1965,35 @@ from .abap_models import (
     ABAPLearningProgress,
 )
 
+# ==============================================================================
+# TUTORIAL PLATFORM MODELS
+# ==============================================================================
+from .tutorial_models import (
+    TutorialTrack,
+    TutorialModule,
+    TutorialLesson,
+    TutorialProgress,
+    TutorialBookmark,
+    TutorialNote,
+    TutorialCertificate,
+)
+
+# ==============================================================================
+# CAREER LEARNING ROADMAPS (MATCHING ANDROID SKILTRIX)
+# ==============================================================================
+from .roadmap_models import (
+    LearningRoadmapProgress,
+)
+
+# ==============================================================================
+# EMBEDDED SYSTEMS, ARDUINO, ESP32 & PCB ENGINEERING
+# ==============================================================================
+from .hardware_models import (
+    HardwareBoard,
+    HardwareProject,
+    HardwareSourceFile,
+    PcbProject,
+    ComponentItem,
+    HardwareBuildJob,
+    ConnectedDevice,
+)

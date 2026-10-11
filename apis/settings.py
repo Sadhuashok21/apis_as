@@ -87,6 +87,8 @@ INSTALLED_APPS = [
     'krishi',
     'skiltrix',
     'accounts',
+    'cms',
+    'whatsapp',
 ]
 
 ASGI_APPLICATION = 'apis.asgi.application'
@@ -266,4 +268,36 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # CodeLab File and Payload Upload Limits (10 MB max request payload)
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
+
+# ==============================================================================
+# CDN Asset Storage & Distribution (Cloudflare R2 + CDN)
+# Domain: https://cdn.ascentracoresolutions.com/
+# ==============================================================================
+CDN_DOMAIN = os.getenv("CDN_DOMAIN", "https://cdn.ascentracoresolutions.com").rstrip("/")
+
+# SFS CDN asset paths
+SFS_IMAGES_URL = f"{CDN_DOMAIN}/sfs/images/"
+SFS_ZIPFILES_URL = f"{CDN_DOMAIN}/sfs/zipfiles/"
+
+# SkilTrix (st) CDN asset paths
+SKILTRIX_IMAGES_URL = f"{CDN_DOMAIN}/st/images/"
+SKILTRIX_PDFS_URL = f"{CDN_DOMAIN}/st/pdfs/"
+SKILTRIX_VIDEOS_URL = f"{CDN_DOMAIN}/st/videos/"
+
+# R2 / S3 Storage Credentials for Cloudflare
+R2_ENDPOINT_URL = os.getenv("endpoint_url", "")
+R2_ACCESS_KEY_ID = os.getenv("aws_access_key_id", "")
+R2_SECRET_ACCESS_KEY = os.getenv("aws_secret_access_key", "")
+R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME", "sfs-blueprints")
+
+# ==============================================================================
+# Meta WhatsApp Cloud API Configuration
+# ==============================================================================
+WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip("\"'")
+WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "").strip("\"'")
+WHATSAPP_BUSINESS_ACCOUNT_ID = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID", "").strip("\"'")
+WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "").strip("\"'")
+WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "").strip("\"'")
+WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "v21.0").strip("\"'")
+WHATSAPP_AI_ENABLED = os.getenv("WHATSAPP_AI_ENABLED", "false").lower() in ("true", "1", "yes")
 

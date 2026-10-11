@@ -1,0 +1,71 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+<a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+&rsaquo; <a href="{% url 'admin:app_list' app_label='skiltrix' %}">Company Assessments</a>
+&rsaquo; <a href="{% url 'admin:skiltrix_assessmentquestionitem_changelist' %}">Questions</a>
+&rsaquo; Bulk Import Questions
+</div>
+{% endblock %}
+
+{% block content %}
+<div style="max-width: 800px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+  <div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 28px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+    <h2 style="font-size: 20px; font-weight: 800; color: #1e293b; margin: 0 0 8px 0;">Bulk Import Assessment Questions</h2>
+    <p style="color: #64748b; font-size: 14px; margin-bottom: 24px; line-height: 1.5;">
+      Upload questions in JSON or CSV format. Imported questions will initially be created as <strong>Draft</strong> to prevent accidental publishing.
+    </p>
+
+    {% if messages %}
+    <div style="margin-bottom: 20px;">
+      {% for message in messages %}
+      <div style="padding: 12px 16px; border-radius: 6px; margin-bottom: 8px; font-size: 13px; {% if message.tags == 'error' %}background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5;{% else %}background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0;{% endif %}">
+        {{ message }}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <form method="post" enctype="multipart/form-data" style="margin-bottom: 30px;">
+      {% csrf_token %}
+      <div style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 30px; text-align: center; margin-bottom: 20px; background: #f8fafc;">
+        <input type="file" name="import_file" id="import_file" accept=".json,.csv" required style="font-size: 14px; margin-bottom: 8px;" />
+        <div style="color: #64748b; font-size: 12px; margin-top: 6px;">Supported file formats: <strong>.json</strong> (recommended for coding &amp; test cases) or <strong>.csv</strong></div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 12px;">
+        <a href="{% url 'admin:skiltrix_assessmentquestionitem_changelist' %}" style="background: #e2e8f0; color: #334155; padding: 10px 18px; border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: 600;">
+          Cancel
+        </a>
+        <button type="submit" style="background: #4f46e5; color: white; border: none; padding: 10px 22px; border-radius: 6px; font-size: 13px; font-weight: 700; cursor: pointer;">
+          Process and Import Questions
+        </button>
+      </div>
+    </form>
+
+    <div style="background: #f1f5f9; border-radius: 8px; padding: 18px; font-size: 12px; color: #334155; line-height: 1.6;">
+      <h4 style="margin: 0 0 8px 0; font-size: 13px; color: #1e293b; text-transform: uppercase;">JSON Format Example:</h4>
+      <pre style="background: #0f172a; color: #38bdf8; padding: 12px; border-radius: 6px; overflow-x: auto; margin: 0; font-family: monospace;"><code>[
+  {
+    "title": "Reverse Linked List in Python",
+    "question_type": "coding",
+    "difficulty": "Easy",
+    "category": "DSA",
+    "language": "python",
+    "prompt": "Reverse a singly linked list and return the head pointer.",
+    "starter_code": "def reverseList(head):\n    pass",
+    "reference_solution": "def reverseList(head):\n    prev = None\n    curr = head\n    while curr:\n        nxt = curr.next\n        curr.next = prev\n        prev = curr\n        curr = nxt\n    return prev",
+    "marks": 20,
+    "test_cases": [
+      { "input": "[1,2,3,4,5]", "expected_output": "[5,4,3,2,1]", "test_type": "Public" },
+      { "input": "[1,2]", "expected_output": "[2,1]", "test_type": "Hidden" }
+    ]
+  }
+]</code></pre>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
