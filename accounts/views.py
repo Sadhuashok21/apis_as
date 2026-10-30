@@ -382,7 +382,7 @@ def accounts_change_password(request):
 @permission_classes([AllowAny])
 def accounts_password_reset_request(request):
     """
-    Request a password reset link. Returns generic response to avoid email enumeration.
+    Request a password reset OTP code. Sends 6-digit OTP code to the user's email.
     """
     serializer = PasswordResetRequestSerializer(data=request.data)
     if not serializer.is_valid():
@@ -392,52 +392,131 @@ def accounts_password_reset_request(request):
     user = User.objects.filter(email__iexact=email).first()
 
     if user:
+        otp_code = generate_otp_code(6)
         token_str = generate_secure_token(48)
+        PasswordResetToken.objects.filter(user=user, is_used=False).update(is_used=True)
         PasswordResetToken.objects.create(
             token=token_str,
+            otp_code=otp_code,
             user=user,
-            expires_at=timezone.now() + timedelta(hours=2),
+            expires_at=timezone.now() + timedelta(minutes=15),
         )
-        # Attempt sending reset email
+
         try:
-            reset_url = f"{getattr(settings, 'ACCOUNTS_PORTAL_URL', 'http://localhost:5174')}/forgot-password?token={token_str}"
-            send_mail(
-                subject="Reset Your Ascentracore Password",
-                message=f"Hi {user.name},\n\nUse the link below to reset your password:\n{reset_url}\n\nThis link expires in 2 hours.",
-                from_email=getattr(settings, "EMAIL_HOST_USER", "noreply") + "@ascentracoresolutions.com",
-                recipient_list=[user.email],
-                fail_silently=True,
-            )
-        except Exception:
-            pass
+            subject = f"Your Password Reset OTP: {otp_code} - Ascentracore Solutions"
+            from_email = getattr(settings, "EMAIL_HOST_USER", "noreply") + "@ascentracoresolutions.com"
+            html_content = f"""
+            <!DOCTYPE html>
+            <html>
+            <head><meta charset="UTF-8"><title>Password Reset OTP</title></head>
+            <body style="margin:0;padding:0;background:#f4f7fb;font-family:Arial,Helvetica,sans-serif;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f7fb;padding:30px 0;">
+            <tr><td align="center">
+            <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:15px;overflow:hidden;box-shadow:0 8px 25px rgba(0,0,0,.1);">
+            <tr><td align="center" style="background:#6d28d9;padding:30px;">
+                <h1 style="color:white;margin:0;font-size:26px;">Ascentracore Solutions</h1>
+                <p style="color:#e9d5ff;margin-top:6px;font-size:15px;">Password Reset Verification Code</p>
+            </td></tr>
+            <tr><td style="padding:40px;">
+                <h2 style="margin-top:0;color:#333;font-size:20px;">Hello {user.name or 'there'},</h2>
+                <p style="font-size:15px;color:#555;line-height:26px;">
+                We received a request to change your password for your Ascentracore Solutions account.
+                Use the One-Time Password (OTP) below to complete your password reset:
+                </p>
+                <div style="margin:30px 0;text-align:center;">
+                    <div style="display:inline-block;background:#6d28d9;color:white;font-size:36px;font-weight:bold;letter-spacing:10px;padding:16px 40px;border-radius:12px;">
+                        {otp_code}
+                    </div>
+                </div>
+                <p style="font-size:14px;color:#666;line-height:24px;">
+                This OTP is valid for <strong>15 minutes</strong>. Do not share this code with anyone.
+                </p>
+                <div style="margin-top:30px;padding:15px;background:#fffbeb;border-left:4px solid #f59e0b;border-radius:6px;font-size:13px;color:#92400e;">
+                <strong>Security Alert:</strong> If you did not request a password change, please ignore this email or review your account security immediately.
+                </div>
+            </td></tr>
+            <tr><td align="center" style="padding:20px;background:#f8fafc;color:#64748b;font-size:13px;">
+                © 2026 Ascentracore Solutions. All Rights Reserved.
+            </td></tr>
+            </table>
+            </td></tr>
+            </table>
+            </body></html>
+            """
+            text_content = f"Your Ascentracore password reset OTP code is: {otp_code}\nValid for 15 minutes.\nDo not share this code with anyone."
 
-        log_audit_event(request, "PASSWORD_RESET_REQUESTED", user=user)
+            from django.core.mail import EmailMultiAlternatives
+            msg = EmailMultiAlternatives(subject, text_content, from_email, [user.email])
+            msg.attach_alternative(html_content, "text/html")
+            msg.send(fail_silently=True)
+        except Exception as e:
+            print("Password reset email error:", e)
 
-    # Always return success to prevent email enumeration
+        log_audit_event(request, "PASSWORD_RESET_OTP_SENT", user=user)
+
+    # Return success message and confirmation
     return Response({
         "status": True,
-        "message": "If an account exists with that email, a password reset link has been sent."
+        "message": "If an account exists with that email, a 6-digit OTP code has been sent.",
+        "email": email,
     })
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def accounts_password_verify_otp(request):
+    """
+    Verify OTP code for password reset without changing password yet.
+    """
+    email = request.data.get("email", "").strip().lower()
+    otp = request.data.get("otp", "").strip()
+    if not email or not otp:
+        return Response({"status": False, "message": "Email and OTP are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    user = User.objects.filter(email__iexact=email).first()
+    if not user:
+        return Response({"status": False, "message": "Invalid email or OTP code."}, status=status.HTTP_400_BAD_REQUEST)
+
+    reset_obj = PasswordResetToken.objects.filter(user=user, otp_code=otp, is_used=False).order_by('-id').first()
+    if not reset_obj or not reset_obj.is_valid():
+        return Response({"status": False, "message": "Invalid or expired OTP code. Please request a new one."}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response({"status": True, "message": "OTP verified successfully."})
 
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def accounts_password_reset_confirm(request):
     """
-    Confirm password reset with valid single-use token.
+    Confirm password reset with valid OTP or token.
     """
     serializer = PasswordResetConfirmSerializer(data=request.data)
     if not serializer.is_valid():
-        return Response({"status": False, "errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        errors = serializer.errors
+        err_msg = next(iter(errors.values()))[0] if errors else "Invalid request data."
+        return Response({"status": False, "message": err_msg, "errors": errors}, status=status.HTTP_400_BAD_REQUEST)
 
-    token_str = serializer.validated_data["token"].strip()
+    email = serializer.validated_data.get("email", "").strip().lower()
+    otp = serializer.validated_data.get("otp", "").strip()
+    token_str = serializer.validated_data.get("token", "").strip()
     new_password = serializer.validated_data["new_password"]
 
-    reset_obj = PasswordResetToken.objects.filter(token=token_str).first()
+    reset_obj = None
+    if email and otp:
+        user = User.objects.filter(email__iexact=email).first()
+        if not user:
+            return Response({"status": False, "message": "No account found with this email."}, status=status.HTTP_400_BAD_REQUEST)
+        reset_obj = PasswordResetToken.objects.filter(user=user, otp_code=otp, is_used=False).order_by('-id').first()
+    elif token_str:
+        reset_obj = PasswordResetToken.objects.filter(token=token_str, is_used=False).first()
+        user = reset_obj.user if reset_obj else None
+    else:
+        return Response({"status": False, "message": "Email and OTP code are required."}, status=status.HTTP_400_BAD_REQUEST)
+
     if not reset_obj or not reset_obj.is_valid():
         return Response({
             "status": False,
-            "message": "Reset link is invalid or has expired."
+            "message": "Invalid or expired OTP code. Please request a new code."
         }, status=status.HTTP_400_BAD_REQUEST)
 
     user = reset_obj.user
@@ -452,7 +531,7 @@ def accounts_password_reset_confirm(request):
 
     log_audit_event(request, "PASSWORD_RESET_COMPLETED", user=user)
 
-    return Response({"status": True, "message": "Password has been successfully reset. Please log in with your new password."})
+    return Response({"status": True, "message": "Password has been successfully changed. Please log in with your new password."})
 
 
 # ============================================================================
@@ -961,3 +1040,154 @@ def accounts_google_auth(request):
         "redirect_url": redirect_url,
     })
 
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def accounts_github_auth(request):
+    """
+    Authenticate or register a user via GitHub OAuth credential.
+    Supports single sign-on across all applications and optional OAuth/PKCE authorization flow.
+    """
+    data = request.data
+    email = data.get("email", "").strip().lower()
+    if not email:
+        return Response({"status": False, "message": "Email is required from GitHub authentication."}, status=status.HTTP_400_BAD_REQUEST)
+
+    name = data.get("name", "").strip()
+    lastname = data.get("lastname", "").strip()
+    profile_pic = data.get("profile", "") or data.get("photoURL", "")
+    username_hint = data.get("username", "").strip()
+    client_id = data.get("client_id", "").strip()
+    redirect_uri = data.get("redirect_uri", "").strip()
+    code_challenge = data.get("code_challenge", "").strip()
+    code_challenge_method = data.get("code_challenge_method", "S256").strip()
+    state = data.get("state", "").strip()
+    scope = data.get("scope", "openid profile email").strip()
+
+    client_app = None
+    if client_id:
+        client_app = ClientApplication.objects.filter(client_id=client_id, is_enabled=True).first()
+
+    # Look up user by email
+    user = User.objects.filter(email__iexact=email).first()
+    if not user:
+        base_username = (username_hint or email.split("@")[0] or "user").lower()
+        candidate = base_username
+        idx = 1
+        while User.objects.filter(username=candidate).exists():
+            candidate = f"{base_username}{idx}"
+            idx += 1
+
+        user_id = f"USR_{uuid.uuid4().hex[:12].upper()}"
+        user = User(
+            user_id=user_id,
+            username=candidate[:50],
+            email=email[:50],
+            name=(name or candidate)[:50],
+            lastname=lastname[:50],
+            profile=(profile_pic or "profile.webp")[:500],
+            platform="web",
+            platform_name="github_oauth",
+            type="user",
+            status="approved",
+            ip=get_client_ip(request)[:50],
+        )
+        user.set_unusable_password()
+        user.save()
+
+        UserProfile.objects.create(
+            user=user,
+            email_verified=True,
+        )
+        log_audit_event(request, "GITHUB_SIGNUP", user=user, client_app=client_app, details=f"New user registered via GitHub: {email}")
+    else:
+        # Check account status
+        status_val = getattr(user, "status", "approved")
+        if status_val in ("suspended", "blocked", "disabled"):
+            log_audit_event(request, "GITHUB_LOGIN_BLOCKED", user=user, client_app=client_app, status_str="WARNING")
+            return Response({
+                "status": False,
+                "message": f"This account is {status_val}. Please contact support."
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        # Update avatar or name if missing
+        updated_fields = []
+        if profile_pic and not user.profile:
+            user.profile = profile_pic
+            updated_fields.append("profile")
+        if not user.name and name:
+            user.name = name
+            updated_fields.append("name")
+        if not user.lastname and lastname:
+            user.lastname = lastname
+            updated_fields.append("lastname")
+        if updated_fields:
+            user.save(update_fields=updated_fields)
+
+        # Ensure UserProfile exists & email verified
+        profile_obj, _ = UserProfile.objects.get_or_create(user=user)
+        if not profile_obj.email_verified:
+            profile_obj.email_verified = True
+            profile_obj.save(update_fields=["email_verified"])
+
+        log_audit_event(request, "GITHUB_LOGIN", user=user, client_app=client_app, details=f"User signed in via GitHub: {email}")
+
+    # Create active session
+    session = create_user_session(
+        user=user,
+        client_app=client_app,
+        ip=get_client_ip(request),
+        user_agent=get_user_agent(request),
+    )
+
+    token = issue_sso_access_token(
+        user,
+        client_id=client_app.client_id if client_app else "central",
+        session_id=session.session_id,
+        scopes=["openid", "profile", "email"],
+    )
+
+    # Sync Django session if session middleware active
+    if hasattr(request, "session"):
+        django_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+
+    # If OAuth PKCE authorization parameters are provided, issue authorization code and redirect_url
+    redirect_url = None
+    code = None
+    if client_app and redirect_uri and code_challenge:
+        if not client_app.is_redirect_uri_allowed(redirect_uri):
+            return Response({
+                "status": False,
+                "error": "invalid_redirect_uri",
+                "message": f"Redirect URI '{redirect_uri}' is not authorized for application '{client_app.client_id}'."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        code = generate_secure_token(32)
+        AuthorizationCode.objects.create(
+            code=code,
+            client_app=client_app,
+            user=user,
+            redirect_uri=redirect_uri,
+            code_challenge=code_challenge,
+            code_challenge_method=code_challenge_method or "S256",
+            scope=scope or "openid profile email",
+            expires_at=timezone.now() + timedelta(minutes=10),
+        )
+
+        params = {"code": code}
+        if state:
+            params["state"] = state
+        query_str = urlencode(params)
+        separator = "&" if "?" in redirect_uri else "?"
+        redirect_url = f"{redirect_uri}{separator}{query_str}"
+
+    return Response({
+        "status": True,
+        "message": "GitHub authentication successful.",
+        "user": UserSerializer(user).data,
+        "access_token": token,
+        "token_type": "Bearer",
+        "session_id": session.session_id,
+        "code": code,
+        "state": state,
+        "redirect_url": redirect_url,
+    })

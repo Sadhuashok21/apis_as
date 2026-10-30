@@ -25,21 +25,51 @@ def index(request):
         return redirect("http://localhost:8443/")
     return HttpResponse("You don't have access to this page. Please contact support for more information.")
 
+@csrf_exempt
 def insert_sfs_app(request):
-    activity_id = request.GET.get("activity_id", "")
+    params = {}
+    if request.method == "POST":
+        try:
+            body_data = json.loads(request.body.decode('utf-8'))
+            if isinstance(body_data, dict):
+                params.update(body_data)
+        except Exception:
+            for k, v in request.POST.items():
+                params[k] = v
+    for k, v in request.GET.items():
+        if k not in params:
+            params[k] = v
+
+    activity_id = params.get("activity_id") or params.get("action") or "page_view"
+    user_id = params.get("user_id") or (request.user.user_id if getattr(request, 'user', None) and hasattr(request.user, 'user_id') else None)
+    utm_source = params.get("utm_source") or None
+    utm_medium = params.get("utm_medium") or None
+    utm_campaign = params.get("utm_campaign") or None
+    platform = params.get("platform") or "web"
+    platform_name = params.get("platform_name") or "sfs_blueprints"
+    version = params.get("version") or sfs_app_version
+
     data = {
-        "status" : True,
+        "status": True,
         "message": "success"
-    }   
+    }
 
-    if activity_id:
-
-        insertions.insert_activity(random.get_client_ip(request), sfs_app_version, activity_id, "app", "sfs_blueprints", request.GET.get('user_id', None))
+    try:
+        insertions.insert_activity(
+            random.get_client_ip(request),
+            str(version)[:15],
+            str(activity_id)[:50],
+            str(platform)[:10],
+            str(platform_name)[:50],
+            user_id=user_id,
+            utm_source=str(utm_source)[:100] if utm_source else None,
+            utm_medium=str(utm_medium)[:100] if utm_medium else None,
+            utm_campaign=str(utm_campaign)[:100] if utm_campaign else None,
+        )
         return JsonResponse(data, safe=False)
-    else:
-
-        data.update({"message": "failed"})
-        return JsonResponse(data, safe=False)
+    except Exception as e:
+        print("Activity insertion error:", e)
+        return JsonResponse({"status": False, "message": str(e)}, status=200, safe=False)
 
 def error_sfs_app(request):
     activity_id = request.GET.get("activity_id", "")
@@ -201,6 +231,7 @@ def check_username(request):
         return JsonResponse(data, safe=False)
 
 
+
 def attach_user_id(request):
     email = request.GET.get('email', '')
 
@@ -224,7 +255,6 @@ def attach_user_id(request):
     else:
         data.update({"message": "no"})
         return JsonResponse(data, safe=False)
-
 
     
 

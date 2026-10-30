@@ -244,9 +244,10 @@ class EmailVerificationToken(models.Model):
 
 class PasswordResetToken(models.Model):
     """
-    Secure, single-use password reset tokens.
+    Secure, single-use password reset tokens and OTP codes.
     """
     token = models.CharField(max_length=128, unique=True)
+    otp_code = models.CharField(max_length=10, blank=True, default="")
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,

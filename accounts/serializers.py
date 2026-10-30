@@ -84,8 +84,15 @@ class PasswordResetRequestSerializer(serializers.Serializer):
 
 
 class PasswordResetConfirmSerializer(serializers.Serializer):
-    token = serializers.CharField(required=True)
+    email = serializers.EmailField(required=False, allow_blank=True)
+    otp = serializers.CharField(required=False, allow_blank=True)
+    token = serializers.CharField(required=False, allow_blank=True)
     new_password = serializers.CharField(required=True, write_only=True, min_length=6)
+
+    def validate(self, attrs):
+        if not attrs.get("token") and not (attrs.get("email") and attrs.get("otp")):
+            raise serializers.ValidationError("Either OTP & email or reset token must be provided.")
+        return attrs
 
 
 class UpdateProfileSerializer(serializers.Serializer):

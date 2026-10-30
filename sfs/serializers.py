@@ -27,3 +27,24 @@ class BpCatSerializer(serializers.ModelSerializer):
 
     def get_image_url(self, obj):
         return get_sfs_image_url(obj.bp_img)
+
+
+class BlueprintSummarySerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BP
+        fields = [
+            'name',
+            'image',
+            'image_url',
+            'fviews',
+            'flikes',
+            'fdownloads',
+            'fshare',
+            'comments',
+            'bp_id',
+        ]
+
+    def get_image_url(self, obj):
+        return get_sfs_image_url(obj.image)
