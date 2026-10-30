@@ -7,6 +7,7 @@ urlpatterns = [
     path('2_093/blueprints', views.blueprints, name="blueprints"),
     path('2_093/blueprint', views.inner_bp, name="blueprint"),
     path('2_093/plawor', views.plawor, name="plawor"),
+    path('2_093/mods', views.mods, name="mods"),
 
     path('2_093/feature', views.feature, name="feature"),
 
@@ -61,12 +62,12 @@ urlpatterns = [
     path('upload/', views.Upload.as_view(), name="upload"),
 
 
-
     path('ser/', views.BPSerializers.as_view(), name="ser"),
 
-    path('upload', views.Upload.as_view(), name="upload"),
+    # Comments endpoints
+    path('get_comments', views.get_comments, name="get_comments"),
+    path('add_comment', views.add_comment, name="add_comment"),
+    path('edit_comment', views.edit_comment, name="edit_comment"),
+    path('delete_comment', views.delete_comment, name="delete_comment"),
 
-
-
-    
 ]

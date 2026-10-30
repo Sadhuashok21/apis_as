@@ -1018,7 +1018,7 @@ ssh-copy-id -i ~/.ssh/ascentracore_ed25519.pub ubuntu@server-ip
                 ],
                 "technologies": ["React 19", "TypeScript", "Django 5", "Monaco Editor", "Docker", "PostgreSQL", "Razorpay"],
                 "status": "Production Live",
-                "website_url": "https://skiltrix.com/",
+                "website_url": "https://skiltrix.ascentracoresolutions.com/",
                 "app_url": "https://skiltrix.ascentracoresolutions.com/",
                 "documentation_url": "https://ascentracoresolutions.com/tutorials",
                 "featured": True,

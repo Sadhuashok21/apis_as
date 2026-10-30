@@ -27,7 +27,7 @@ def generate_otp(length=6):
     return otp
 
 
-def insert_activity(ip, version, activity_id, platform, platform_name, user_id=None):
+def insert_activity(ip, version, activity_id, platform, platform_name, user_id=None, utm_source=None, utm_medium=None, utm_campaign=None):
     TotalActivity.objects.create(
         ip=ip,
         user_id=user_id,
@@ -35,12 +35,15 @@ def insert_activity(ip, version, activity_id, platform, platform_name, user_id=N
         total_id=unique_id(),
         version=version,
         platform_name=platform_name,
-        platform=platform
+        platform=platform,
+        utm_source=utm_source,
+        utm_medium=utm_medium,
+        utm_campaign=utm_campaign
     )
-    print("Executed: ", activity_id)
+    print("Executed: ", activity_id, "utm_source:", utm_source)
 
 
-def insert_error(ip, version, error_msg, activity, error_code, platform, platform_name, user_id=None):
+def insert_error(ip, version, error_msg, activity, error_code, platform, platform_name, user_id=None, utm_source=None, utm_medium=None, utm_campaign=None):
     AllErrors.objects.create(
         ip=ip,
         error_id=unique_id(),
@@ -51,11 +54,14 @@ def insert_error(ip, version, error_msg, activity, error_code, platform, platfor
         error_code=error_code,
         platform=platform,
         platform_name=platform_name,
+        utm_source=utm_source,
+        utm_medium=utm_medium,
+        utm_campaign=utm_campaign
     )
     print("Error inserted: ", error_msg)
 
 
-def insert_dlv(ip, bp_id, type, user_id, download_type, version):
+def insert_dlv(ip, bp_id, type, user_id, download_type, version, utm_source=None):
     bp = BP.objects.filter(bp_id=bp_id, status="approved").first()
     if bp:
         if type == "view":
@@ -78,6 +84,7 @@ def insert_dlv(ip, bp_id, type, user_id, download_type, version):
             dlv_id=unique_id(),
             platform="sfs",
             platform_name="app",
+            utm_source=utm_source,
             version=version,
             time=timezone.now()
         )

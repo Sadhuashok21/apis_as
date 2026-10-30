@@ -175,6 +175,7 @@ class BpDlv(models.Model):
     dlv_id = models.CharField(max_length=50, unique=True)
     platform = models.CharField(max_length=10)
     platform_name = models.CharField(max_length=50)
+    utm_source = models.CharField(max_length=100, null=True, blank=True, default=None)
     version = models.CharField(max_length=15)
     time = models.DateTimeField()
 
@@ -234,6 +235,9 @@ class TotalActivity(models.Model):
     total_id = models.CharField(max_length=50)
     platform = models.CharField(max_length=10, default="app")
     platform_name = models.CharField(max_length=50, default="sfs_blueprints")
+    utm_source = models.CharField(max_length=100, null=True, blank=True, default=None)
+    utm_medium = models.CharField(max_length=100, null=True, blank=True, default=None)
+    utm_campaign = models.CharField(max_length=100, null=True, blank=True, default=None)
     version = models.CharField(max_length=15)
     time = models.DateTimeField(auto_now=True)
 
@@ -259,6 +263,9 @@ class AllErrors(models.Model):
     activity = models.TextField()
     platform = models.CharField(max_length=10, default="app")
     platform_name = models.CharField(max_length=50, default="sfs_blueprints")
+    utm_source = models.CharField(max_length=100, null=True, blank=True, default=None)
+    utm_medium = models.CharField(max_length=100, null=True, blank=True, default=None)
+    utm_campaign = models.CharField(max_length=100, null=True, blank=True, default=None)
     version = models.CharField(max_length=15)
     status = models.CharField(max_length=20, default='active')
     time = models.DateTimeField(auto_now=True)
@@ -273,6 +280,7 @@ class DeviceFCM(models.Model):
     device = models.TextField()
     platform = models.CharField(max_length=10)
     platform_name = models.CharField(max_length=50)
+    utm_source = models.CharField(max_length=100, null=True, blank=True, default=None)
     device_id = models.CharField(max_length=50)
     user = models.ForeignKey(
         AllUsers,

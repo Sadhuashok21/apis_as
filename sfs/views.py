@@ -7,63 +7,94 @@ from . import utils
 from django.db import connection
 from .models import *
 from .utils import get_client_ip, unique_id
-from django.db.models import Count, F
+from django.db.models import Count, F, Q
 from django.views import View
 from dotenv import load_dotenv
-
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework import generics, status
+from .pagination import StandardResultsSetPagination, BlueprintPagination, PlanetPagination, ModsPagination
 
 from .serializers import *
 
-
 load_dotenv()
 
-class BPSerializers(APIView):
+class BPSerializers(generics.ListCreateAPIView):
+    """
+    DRF List and Create API view for blueprints with pagination.
+    Supports ?page=, ?off=, ?page_size=, and optional ?type= or ?status= filtering.
+    """
+    serializer_class = BpSerializers
+    pagination_class = BlueprintPagination
 
-    bps = BP.objects.all()
-    seri = BpSerializers(bps, many=True)
-    
+    def get_queryset(self):
+        queryset = BP.objects.filter(status="approved").order_by("-id")
+        bp_type = self.request.query_params.get("type")
+        if bp_type:
+            queryset = queryset.filter(type=bp_type)
+        return queryset
 
-    def get(self, request):
-        return Response(self.seri.data)
-        pass
-    def post(self, request):
-        return Response({"message": "POST request received"})
-        pass
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
     
 
 
 # Create your views here.
+
+def get_user_object(user_id_input):
+    if not user_id_input:
+        return None
+    user_obj = AllUsers.objects.filter(
+        Q(user_id=user_id_input) | Q(email=user_id_input) | Q(username=user_id_input)
+    ).first()
+    if not user_obj and str(user_id_input).isdigit():
+        user_obj = AllUsers.objects.filter(id=int(user_id_input)).first()
+    return user_obj
+
 
 def like(request):
     bp_id = request.GET.get('bp_id', '')
     user_id = request.GET.get('user_id', '')
 
     if bp_id and user_id:
+        user_obj = get_user_object(user_id)
+        effective_user_id = user_obj.user_id if user_obj else user_id
+
         blueprint = BP.objects.filter(bp_id=bp_id).first()
 
         if blueprint is None:
-            #insert_error(get_client_ip(request), request.session.get('user_id', 'anonymous'), version, "Blueprint not found during like", request.build_absolute_uri())
             return JsonResponse({"status": False, "message": "Blueprint not found."}, safe=False)
 
-        favorite = BpDlv.objects.filter(bp_pla_id=bp_id, user_id=user_id, type="like").first()
+        favorite = BpDlv.objects.filter(
+            Q(user_id=effective_user_id) | Q(user_id=user_id),
+            bp_pla_id=bp_id,
+            type="like"
+        ).first()
 
         if favorite:
             favorite.delete()
 
-            blueprint.flikes -= 1
-            blueprint.likes -= 1
+            if blueprint.flikes > 0:
+                blueprint.flikes -= 1
+            if blueprint.likes > 0:
+                blueprint.likes -= 1
             blueprint.save()
 
-            Favorites.objects.filter(user_id=user_id, bp_id=bp_id).delete()
+            Favorites.objects.filter(
+                Q(user_id=effective_user_id) | Q(user_id=user_id),
+                bp_id=bp_id
+            ).delete()
 
-            #insert_activity(get_client_ip(request), version, "unliked_blueprint", user_id)
-            return JsonResponse({"status": True, "message": "Unliked successfully."}, safe=False)
+            return JsonResponse({"status": True, "message": "Unliked successfully.", "liked": False}, safe=False)
         else:
-            Favorites.objects.create(user_id=user_id, bp_id=bp_id, status="approved", time=timezone.now())
+            Favorites.objects.create(user_id=effective_user_id, bp_id=bp_id, status="approved", time=timezone.now())
             BpDlv.objects.create(
                 ip = get_client_ip(request),
                 platform_name = "app",
@@ -72,17 +103,16 @@ def like(request):
                 type="like",
                 download_type = "null",
                 bp_pla_id=bp_id,
-                user_id=user_id,
+                user_id=effective_user_id,
                 dlv_id = unique_id(),
                 time=timezone.now(),
             )
             blueprint.flikes += 1
             blueprint.likes += 1
             blueprint.save()
-        #insert_activity(get_client_ip(request), version, "liked_blueprint", user_id)
-            return JsonResponse({"status": True, "message": "Liked successfully."}, safe=False)
+
+            return JsonResponse({"status": True, "message": "Liked successfully.", "liked": True}, safe=False)
     else:
-        #insert_error(get_client_ip(request), request.session.get('user_id', 'anonymous'), version, "Missing user id or blueprint id during like", request.build_absolute_uri())
         return JsonResponse({"status": False, "message": "Missing user id or blueprint id."}, safe=False)
 
 
@@ -90,44 +120,48 @@ def like(request):
 class Upload(View):
     
 
-class Upload(View):
-
     def post(self, request):
-        name = request.POST.get('name', '')
+        name = request.POST.get('name', '').strip()
         image = request.FILES.get('image', '')
         zipfile = request.FILES.get('zip_file', '')
-        sfs_link = request.POST.get('sfs_link', '')
-        type = request.POST.get('type', '')
-
-        user_id = request.POST.get('user_id', '')
-        user_id = request.session.get('user_id', '')
-
-        description = request.POST.get('description', '')
+        sfs_link = request.POST.get('sfs_link', '').strip()
+        raw_type = request.POST.get('type', '').strip().lower()
+        user_id = request.POST.get('user_id', '').strip()
+        description = request.POST.get('description', '').strip()
       
         categories = request.POST.getlist('categories')
+
+        # Normalize type: blueprint, planet, mod
+        if raw_type in ('bp', 'blueprint'):
+            item_type = 'blueprint'
+        elif raw_type in ('planet', 'planets', 'world', 'worlds'):
+            item_type = 'planet'
+        elif raw_type in ('mod', 'mods'):
+            item_type = 'mod'
+        else:
+            item_type = raw_type
 
         data = {
             "status": True,
             "message": "success"
         }
 
-        if type == "Select":
-            return JsonResponse(data)
+        if item_type in ("select", ""):
+            return JsonResponse({"status": False, "message": "Please select a valid type (blueprint, planet, or mod)."}, safe=False)
+
+        # Fallback to authenticated user if user_id was not explicitly in POST
+        if not user_id and request.user.is_authenticated:
+            user_id = getattr(request.user, 'user_id', '') or str(request.user.id)
+        if not user_id:
+            user_id = request.headers.get('X-User-Id', '')
+
+        user_obj = get_user_object(user_id)
+        effective_user_id = user_obj.user_id if user_obj and hasattr(user_obj, 'user_id') else user_id
         
-        if name and image and zipfile and type and user_id:
+        if name and image and zipfile and item_type and effective_user_id:
             import boto3
             new_image = unique_id() + "." + image.name.split('.')[-1]
-
             new_zip = unique_id() + "." + zipfile.name.split('.')[-1]
-
-
-
-            print("================================")
-            print("ENDPOINT:", os.getenv("endpoint_url"))
-            print("ACCESS:", os.getenv("aws_access_key_id"))
-            print("SECRET EXISTS:", bool(os.getenv("aws_secret_access_key")))
-            print("================================")
-        
 
             s3 = boto3.client(
                 service_name="s3",
@@ -136,21 +170,21 @@ class Upload(View):
                 aws_secret_access_key=os.getenv("aws_secret_access_key"),
                 region_name="auto",
             )
-     
 
             bp_id = unique_id()
+            effective_sfs_link = sfs_link if sfs_link else "none"
 
             bp = BP.objects.create(
                 name=name,
                 image=new_image,
                 zipfiles=new_zip,
-                sfs_link=sfs_link if type == "blueprint" else "none",
-                type=type,
+                sfs_link=effective_sfs_link,
+                type=item_type,
                 bp_id=bp_id,
                 status="approved",
-                description = description,
-                ip=request.META.get('REMOTE_ADDR'),
-                user_id=user_id,
+                description=description,
+                ip=request.META.get('REMOTE_ADDR') or get_client_ip(request),
+                user_id=effective_user_id,
                 time=timezone.now(),
             )
 
@@ -158,20 +192,19 @@ class Upload(View):
                 BPCategories.objects.create(
                     bp_id=bp_id,
                     category_id=cat_id,
-                    time = timezone.now(),
-                    ip = request.META.get('REMOTE_ADDR'),
-                    status = "approved",
+                    time=timezone.now(),
+                    ip=request.META.get('REMOTE_ADDR') or get_client_ip(request),
+                    status="approved",
                 )
 
-
-            response1 = s3.put_object(
+            s3.put_object(
                 Bucket="sfs-blueprints",
                 Key="sfs/images/" + new_image,
                 Body=image,
                 ContentType=image.content_type,
             )
 
-            response = s3.put_object(
+            s3.put_object(
                 Bucket="sfs-blueprints",
                 Key="sfs/zipfiles/" + new_zip,
                 Body=zipfile,
@@ -182,12 +215,20 @@ class Upload(View):
                 "image_url": f"https://cdn.ascentracoresolutions.com/sfs/images/{new_image}",
                 "zip_url": f"https://cdn.ascentracoresolutions.com/sfs/zipfiles/{new_zip}",
                 "bp_id": bp_id,
+                "type": item_type,
             })
 
             return JsonResponse(data, safe=False)        
         
         else:
-            return JsonResponse(data, safe=False)
+            missing = []
+            if not name: missing.append("name")
+            if not image: missing.append("image")
+            if not zipfile: missing.append("file")
+            if not item_type: missing.append("type")
+            if not effective_user_id: missing.append("user_id")
+            return JsonResponse({"status": False, "message": f"Missing required fields: {', '.join(missing)}"}, safe=False)
+
 
 
 def device_fcm(request):
@@ -252,7 +293,14 @@ def check_like(request):
     user_id = request.GET.get('user_id', '')
 
     if bp_id and user_id:
-        favorite = BpDlv.objects.filter(bp_pla_id=bp_id, user_id=user_id, type="like").first()
+        user_obj = get_user_object(user_id)
+        effective_user_id = user_obj.user_id if user_obj else user_id
+
+        favorite = BpDlv.objects.filter(
+            Q(user_id=effective_user_id) | Q(user_id=user_id),
+            bp_pla_id=bp_id,
+            type="like"
+        ).first()
 
         if favorite:
             return JsonResponse({"status": True, "liked": True}, safe=False)
@@ -366,49 +414,36 @@ def home_pla(request):
     return JsonResponse(data, safe=False)
 
 
-def blueprints(request):
-
-    off_str = request.GET.get('off', '').strip()
-    off_value = int(off_str) if off_str.isdigit() and int(off_str) > 0 else 1
-
-    start = (off_value - 1) * 10
-    end = off_value * 10
-    data = {
-        "status": True,
-        "message": "success",
-    }
+class BlueprintsListView(generics.ListAPIView):
+    """
+    DRF List view for blueprints with PageNumberPagination.
+    """
+    queryset = BP.objects.filter(status="approved", type="blueprint").order_by("-id")
+    serializer_class = BlueprintSummarySerializer
+    pagination_class = BlueprintPagination
 
 
-    blueprints = BP.objects.filter(status="approved", type="blueprint").order_by("-id")[start:end]
+class PlaworListView(generics.ListAPIView):
+    """
+    DRF List view for planet worlds with PageNumberPagination.
+    """
+    queryset = BP.objects.filter(status="approved", type="planet").order_by("-id")
+    serializer_class = BlueprintSummarySerializer
+    pagination_class = PlanetPagination
 
-    data.update({
-        "off": off_value,
-        "blueprints":  list(blueprints.values("name", "image", "fviews", "flikes", "fdownloads", "fshare", "comments", "bp_id")), 
-        
-    })
 
-    return JsonResponse(data, safe=False)
+class ModsListView(generics.ListAPIView):
+    """
+    DRF List view for mods with PageNumberPagination.
+    """
+    queryset = BP.objects.filter(status="approved", type="mod").order_by("-id")
+    serializer_class = BlueprintSummarySerializer
+    pagination_class = ModsPagination
 
-def plawor(request):
-    off_str = request.GET.get('off', '').strip()
-    off_value = int(off_str) if off_str.isdigit() and int(off_str) > 0 else 1
 
-    start = (off_value - 1) * 10
-    end = off_value * 10
-    data = {
-        "status": True,
-        "message": "success",
-    }
-
-    blueprints = BP.objects.filter(status="approved", type="planet").order_by("-id")[start:end]
-
-    data.update({
-        "off": off_value,
-        "blueprints":  list(blueprints.values("name", "image", "fviews", "flikes", "fdownloads", "fshare", "comments", "bp_id")), 
-        
-    })
-
-    return JsonResponse(data, safe=False)
+blueprints = BlueprintsListView.as_view()
+plawor = PlaworListView.as_view()
+mods = ModsListView.as_view()
 
 
 # account and signin
@@ -1121,10 +1156,11 @@ def insert_dlv(request):
     bp_id = request.GET.get('bp_id', '')
     type = request.GET.get('type', '')
     download_type = request.GET.get('download_type', '')
+    utm_source = request.GET.get('utm_source', None)
 
     if bp_id and type and download_type:
 
-        utils.insert_dlv(get_client_ip(request), bp_id, type, request.GET.get('user_id', 'anonymous'), download_type, "2.1")
+        utils.insert_dlv(get_client_ip(request), bp_id, type, request.GET.get('user_id', 'anonymous'), download_type, "2.1", utm_source=utm_source)
 
         return JsonResponse(data, safe=False)
     else:
@@ -1189,3 +1225,160 @@ def inner_cat_2_1(request):
 
 
 # 2.1 version end
+
+
+# ==============================================================================
+# DYNAMIC COMMENTS APIS
+# ==============================================================================
+
+def get_comments(request):
+    bp_id = request.GET.get('bp_id', '')
+    user_id = request.GET.get('user_id', '')
+
+    if not bp_id:
+        return JsonResponse({"status": False, "message": "bp_id required", "comments": []})
+
+    comments_qs = Comments.objects.filter(bp_id=bp_id).select_related('user').order_by('time')
+
+    comments_list = []
+    for c in comments_qs:
+        author_name = "Space Pilot"
+        if c.user:
+            author_name = c.user.name or c.user.username or "Space Pilot"
+
+        time_str = "Recently"
+        if c.time:
+            time_str = c.time.strftime("%d %b %Y, %H:%M")
+
+        is_owner = False
+        if user_id and c.user and str(c.user.user_id) == str(user_id):
+            is_owner = True
+
+        raw_text = c.comment or ""
+        parent_id = None
+        if raw_text.startswith("[reply:") and "]" in raw_text:
+            idx = raw_text.find("]")
+            parent_id = raw_text[7:idx].strip()
+            raw_text = raw_text[idx + 1:].strip()
+
+        comments_list.append({
+            "id": str(c.id),
+            "user_id": str(c.user.user_id) if c.user else "",
+            "author": author_name,
+            "text": raw_text,
+            "parent_id": parent_id,
+            "time": time_str,
+            "is_owner": is_owner
+        })
+
+    return JsonResponse({
+        "status": True,
+        "count": len(comments_list),
+        "comments": comments_list
+    }, safe=False)
+
+
+@csrf_exempt
+def add_comment(request):
+    bp_id = request.GET.get('bp_id', '') or request.POST.get('bp_id', '')
+    user_id = request.GET.get('user_id', '') or request.POST.get('user_id', '')
+    text = request.GET.get('comment_text', '') or request.POST.get('comment_text', '')
+    parent_id = request.GET.get('parent_id', '') or request.POST.get('parent_id', '')
+
+    if not (bp_id and user_id and text):
+        return JsonResponse({"status": False, "message": "bp_id, user_id, and comment_text required"})
+
+    bp_obj = BP.objects.filter(bp_id=bp_id).first()
+    if not bp_obj:
+        return JsonResponse({"status": False, "message": "Blueprint not found"})
+
+    user_obj = get_user_object(user_id)
+    if not user_obj:
+        clean_username = str(user_id).replace("@", "_").replace(".", "_")
+        user_obj = AllUsers.objects.create(
+            user_id=user_id,
+            username=clean_username[:50],
+            name="Space Pilot",
+            email=user_id if "@" in user_id else f"{user_id}@sfs.app",
+            platform="sfs",
+            platform_name="sfs_blueprints",
+            type="user",
+            ip=get_client_ip(request)
+        )
+
+    final_comment_text = f"[reply:{parent_id}] {text.strip()}" if parent_id else text.strip()
+
+    new_comment = Comments.objects.create(
+        ip=get_client_ip(request),
+        user=user_obj,
+        bp=bp_obj,
+        comment=final_comment_text,
+        status="approved",
+        time=timezone.now()
+    )
+
+    bp_obj.comments = Comments.objects.filter(bp_id=bp_id).count()
+    bp_obj.save()
+
+    return JsonResponse({
+        "status": True,
+        "message": "Comment posted successfully",
+        "comment": {
+            "id": str(new_comment.id),
+            "user_id": str(user_id),
+            "author": user_obj.name or "You",
+            "text": text.strip(),
+            "parent_id": str(parent_id) if parent_id else None,
+            "time": "Just now",
+            "is_owner": True
+        },
+        "count": bp_obj.comments
+    }, safe=False)
+
+
+@csrf_exempt
+def edit_comment(request):
+    comment_id = request.GET.get('comment_id', '') or request.POST.get('comment_id', '')
+    user_id = request.GET.get('user_id', '') or request.POST.get('user_id', '')
+    text = request.GET.get('comment_text', '') or request.POST.get('comment_text', '')
+
+    if not (comment_id and user_id and text):
+        return JsonResponse({"status": False, "message": "comment_id, user_id, and comment_text required"})
+
+    comment_obj = Comments.objects.filter(id=comment_id, user__user_id=user_id).first()
+    if not comment_obj:
+        return JsonResponse({"status": False, "message": "Comment not found or unauthorized"})
+
+    comment_obj.comment = text
+    comment_obj.save()
+
+    return JsonResponse({"status": True, "message": "Comment updated successfully"}, safe=False)
+
+
+@csrf_exempt
+def delete_comment(request):
+    comment_id = request.GET.get('comment_id', '') or request.POST.get('comment_id', '')
+    user_id = request.GET.get('user_id', '') or request.POST.get('user_id', '')
+
+    if not (comment_id and user_id):
+        return JsonResponse({"status": False, "message": "comment_id and user_id required"})
+
+    comment_obj = Comments.objects.filter(id=comment_id, user__user_id=user_id).first()
+    if not comment_obj:
+        return JsonResponse({"status": False, "message": "Comment not found or unauthorized"})
+
+    bp_id = comment_obj.bp_id
+    comment_obj.delete()
+
+    bp_obj = BP.objects.filter(bp_id=bp_id).first()
+    count = 0
+    if bp_obj:
+        bp_obj.comments = Comments.objects.filter(bp_id=bp_id).count()
+        bp_obj.save()
+        count = bp_obj.comments
+
+    return JsonResponse({
+        "status": True,
+        "message": "Comment deleted successfully",
+        "count": count
+    }, safe=False)
