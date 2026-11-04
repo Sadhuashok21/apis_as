@@ -155,6 +155,10 @@ class Upload(View):
             user_id = getattr(request.user, 'user_id', '') or str(request.user.id)
         if not user_id:
             user_id = request.headers.get('X-User-Id', '')
+        if not user_id:
+            admin_user = AllUsers.objects.filter(status="approved").first() or AllUsers.objects.first()
+            if admin_user:
+                user_id = admin_user.user_id
 
         user_obj = get_user_object(user_id)
         effective_user_id = user_obj.user_id if user_obj and hasattr(user_obj, 'user_id') else user_id
@@ -190,13 +194,22 @@ class Upload(View):
             )
 
             for cat_id in categories:
-                BPCategories.objects.create(
-                    bp_id=bp_id,
-                    category_id=cat_id,
-                    time=timezone.now(),
-                    ip=request.META.get('REMOTE_ADDR') or get_client_ip(request),
-                    status="approved",
-                )
+                cat_obj = None
+                if str(cat_id).isdigit():
+                    cat_obj = BpCat.objects.filter(id=int(cat_id)).first()
+                if not cat_obj:
+                    cat_obj = BpCat.objects.filter(category_id=str(cat_id)).first()
+                if not cat_obj:
+                    cat_obj = BpCat.objects.filter(bp_name__iexact=str(cat_id)).first()
+
+                if cat_obj:
+                    BPCategories.objects.create(
+                        bp=bp,
+                        category=cat_obj,
+                        time=timezone.now(),
+                        ip=request.META.get('REMOTE_ADDR') or get_client_ip(request),
+                        status="approved",
+                    )
 
             s3.put_object(
                 Bucket="sfs-blueprints",
