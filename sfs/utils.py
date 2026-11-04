@@ -4,9 +4,10 @@ from django.utils import timezone
 from .models import BP, BpDlv, TotalActivity, AllErrors
 
 
-def unique_id():
+def unique_id(k=20, *args, **kwargs):
+    length = k if isinstance(k, int) else 20
     characters = string.ascii_uppercase + string.digits
-    random_string = ''.join(random.choices(characters, k=20))
+    random_string = ''.join(random.choices(characters, k=length))
     return random_string
 
 

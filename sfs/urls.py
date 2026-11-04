@@ -32,6 +32,7 @@ urlpatterns = [
     path('2_1/blueprints', views.blueprints_2_1, name="blueprints_2_1"),
     path('2_1/blueprints/random', views.random_blueprints_2_1, name="random"),
     path('2_1/planets', views.planets_2_1, name="planets_2_1"),
+    path('2_1/mods', views.mods_2_1, name="mods_2_1"),
     path('2_1/categories', views.categories_2_1, name="categories_2_1"),
     path('2_1/blueprints/bp', views.inner_bp, name="inner_bp"),
 

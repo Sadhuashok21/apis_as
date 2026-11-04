@@ -9,6 +9,7 @@ from django.db.models.functions import TruncDate
 from django.utils import timezone
 from sfs.models import AllUsers, BP, BpCat, BPCategories, TotalActivity, AllErrors
 from sfs.utils import unique_id, get_client_ip
+from apis.cdn_utils import get_sfs_image_url
 
 
 def get_admin_stats(request):
@@ -190,7 +191,7 @@ def admin_users(request, user_id=None):
             if AllUsers.objects.filter(email=email).exists():
                 return JsonResponse({"status": False, "error": "User with this email already exists"}, status=400)
 
-            uid = unique_id(20)
+            uid = unique_id()
             user = AllUsers.objects.create(
                 username=uid[:15],
                 name=name,
@@ -406,7 +407,8 @@ def admin_blueprints(request, bp_id=None):
                     "blueprint": {
                         "bp_id": bp.bp_id,
                         "name": bp.name,
-                        "image": f"https://images.unsplash.com/photo-1517976487502-5731f30bc482?w=400" if not bp.image or not bp.image.startswith("http") else bp.image,
+                        "image": bp.image or "",
+                        "image_url": get_sfs_image_url(bp.image),
                         "type": bp.type,
                         "categories": cats if cats else ["General"],
                         "downloads": bp.downloads,
@@ -458,7 +460,8 @@ def admin_blueprints(request, bp_id=None):
                 bp_list.append({
                     "bp_id": bp.bp_id,
                     "name": bp.name,
-                    "image": f"https://images.unsplash.com/photo-1517976487502-5731f30bc482?w=400" if not bp.image or not bp.image.startswith("http") else bp.image,
+                    "image": bp.image or "",
+                        "image_url": get_sfs_image_url(bp.image),
                     "type": bp.type,
                     "categories": cats if cats else ["General"],
                     "downloads": bp.downloads,
@@ -534,9 +537,65 @@ def admin_blueprints(request, bp_id=None):
             return JsonResponse({"status": False, "error": str(e)}, status=500)
 
 
+def upload_category_image_to_s3(image_file):
+    """
+    Upload category banner image to sfs-blueprints S3 bucket under sfs/images/<new_image>
+    using boto3, matching the blueprint upload architecture.
+    """
+    import os
+    import boto3
+    from django.conf import settings
+    from sfs.utils import unique_id
+
+    ext = image_file.name.split('.')[-1].lower() if '.' in image_file.name else 'png'
+    new_image = f"{unique_id()}.{ext}"
+    content_type = getattr(image_file, 'content_type', None) or 'image/png'
+
+    endpoint_url = os.getenv("endpoint_url") or getattr(settings, "R2_ENDPOINT_URL", "")
+    aws_access_key_id = os.getenv("aws_access_key_id") or getattr(settings, "R2_ACCESS_KEY_ID", "")
+    aws_secret_access_key = os.getenv("aws_secret_access_key") or getattr(settings, "R2_SECRET_ACCESS_KEY", "")
+    bucket = getattr(settings, "R2_BUCKET_NAME", "sfs-blueprints")
+
+    # 1. Boto3 S3 upload to sfs-blueprints bucket
+    try:
+        s3 = boto3.client(
+            service_name="s3",
+            endpoint_url=endpoint_url,
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            region_name="auto",
+        )
+        if hasattr(image_file, 'seek'):
+            image_file.seek(0)
+        s3.put_object(
+            Bucket=bucket,
+            Key=f"sfs/images/{new_image}",
+            Body=image_file,
+            ContentType=content_type,
+        )
+    except Exception as e:
+        print(f"[boto3 S3 upload] Category banner upload failed: {e}")
+
+    # 2. Local media backup for offline/dev resilience
+    try:
+        media_root = getattr(settings, "MEDIA_ROOT", "media")
+        local_dir = os.path.join(media_root, "sfs", "images")
+        os.makedirs(local_dir, exist_ok=True)
+        local_path = os.path.join(local_dir, new_image)
+        if hasattr(image_file, 'seek'):
+            image_file.seek(0)
+        with open(local_path, "wb") as f:
+            for chunk in image_file.chunks():
+                f.write(chunk)
+    except Exception as e:
+        print(f"[Category Local Backup] Backup error: {e}")
+
+    return new_image
+
+
 @csrf_exempt
 def admin_categories(request, cat_id=None):
-    """List, create, or update blueprint categories."""
+    """Retrieve, create, edit, or delete blueprint categories with boto3 S3 banner image uploads."""
     if request.method == "GET":
         try:
             categories = BpCat.objects.all().order_by('-id')
@@ -547,7 +606,8 @@ def admin_categories(request, cat_id=None):
                     "id": c.id,
                     "category_id": c.category_id,
                     "bp_name": c.bp_name,
-                    "bp_img": f"https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=400" if not c.bp_img or not c.bp_img.startswith("http") else c.bp_img,
+                    "bp_img": c.bp_img or "",
+                    "image_url": get_sfs_image_url(c.bp_img),
                     "bp_para": c.bp_para,
                     "status": c.status or "approved",
                     "blueprint_count": count
@@ -556,29 +616,115 @@ def admin_categories(request, cat_id=None):
         except Exception as e:
             return JsonResponse({"status": False, "error": str(e)}, status=500)
 
-    elif request.method == "POST":
+    elif request.method in ("POST", "PUT"):
         try:
-            body = json.loads(request.body.decode('utf-8')) if request.body else {}
-            name = body.get("bp_name") or body.get("name", "")
-            para = body.get("bp_para") or body.get("description", "")
-            img = body.get("bp_img", "default.png")
+            name = ""
+            para = ""
+            status_val = "approved"
+            target_id = cat_id or request.POST.get("id") or request.POST.get("category_id")
+            body_dict = {}
 
+            if request.POST:
+                name = request.POST.get("name") or request.POST.get("bp_name") or ""
+                para = request.POST.get("description") or request.POST.get("bp_para") or ""
+                status_val = request.POST.get("status") or "approved"
+                if not target_id:
+                    target_id = request.POST.get("id") or request.POST.get("category_id")
+            elif request.body:
+                try:
+                    body_dict = json.loads(request.body.decode('utf-8'))
+                    name = body_dict.get("name") or body_dict.get("bp_name") or ""
+                    para = body_dict.get("description") or body_dict.get("bp_para") or ""
+                    status_val = body_dict.get("status") or "approved"
+                    if not target_id:
+                        target_id = body_dict.get("id") or body_dict.get("category_id")
+                except Exception:
+                    pass
+
+            image_file = request.FILES.get("image") or request.FILES.get("cat_img") or request.FILES.get("bp_img")
+
+            # Update existing category if target_id provided
+            if target_id:
+                if str(target_id).isdigit():
+                    cat = BpCat.objects.filter(id=int(target_id)).first() or BpCat.objects.filter(category_id=str(target_id)).first()
+                else:
+                    cat = BpCat.objects.filter(category_id=str(target_id)).first()
+                if cat:
+                    if name:
+                        cat.bp_name = name
+                        cat.bp_category = name[:20]
+                    if para:
+                        cat.bp_para = para
+                    if status_val:
+                        cat.status = status_val
+                    if image_file:
+                        cat.bp_img = upload_category_image_to_s3(image_file)
+                    cat.save()
+                    return JsonResponse({
+                        "status": True,
+                        "message": "Category updated successfully",
+                        "category": {
+                            "id": cat.id,
+                            "category_id": cat.category_id,
+                            "bp_name": cat.bp_name,
+                            "bp_img": cat.bp_img,
+                            "image_url": get_sfs_image_url(cat.bp_img),
+                            "bp_para": cat.bp_para,
+                            "status": cat.status
+                        }
+                    })
+
+            # Create new category
             if not name:
                 return JsonResponse({"status": False, "error": "Category name required"}, status=400)
+
+            if image_file:
+                new_image = upload_category_image_to_s3(image_file)
+            else:
+                new_image = request.POST.get("bp_img") or body_dict.get("bp_img", "")
+                if not new_image:
+                    return JsonResponse({"status": False, "error": "Local banner image file is required"}, status=400)
 
             user = AllUsers.objects.first()
             new_cat = BpCat.objects.create(
                 bp_name=name,
                 bp_category=name[:20],
-                bp_img=img,
+                bp_img=new_image,
                 bp_para=para,
-                category_id=unique_id(20),
+                category_id=unique_id(),
                 user=user,
-                status="approved",
+                status=status_val,
                 ip=get_client_ip(request),
                 time=timezone.now()
             )
-            return JsonResponse({"status": True, "message": "Category created", "category_id": new_cat.category_id})
+            return JsonResponse({
+                "status": True,
+                "message": "Category created successfully",
+                "category_id": new_cat.category_id,
+                "bp_img": new_cat.bp_img,
+                "image_url": get_sfs_image_url(new_cat.bp_img)
+            })
+        except Exception as e:
+            return JsonResponse({"status": False, "error": str(e)}, status=500)
+
+    elif request.method == "DELETE":
+        try:
+            target_id = cat_id or request.GET.get("id") or request.GET.get("category_id")
+            if not target_id and request.body:
+                try:
+                    body_dict = json.loads(request.body.decode('utf-8'))
+                    target_id = body_dict.get("id") or body_dict.get("category_id")
+                except Exception:
+                    pass
+            if not target_id:
+                return JsonResponse({"status": False, "error": "Category ID is required for deletion"}, status=400)
+            if str(target_id).isdigit():
+                deleted, _ = BpCat.objects.filter(id=int(target_id)).delete()
+                if not deleted:
+                    deleted, _ = BpCat.objects.filter(category_id=str(target_id)).delete()
+            else:
+                deleted, _ = BpCat.objects.filter(category_id=str(target_id)).delete()
+            return JsonResponse({"status": True, "message": "Category deleted successfully", "deleted": deleted})
         except Exception as e:
             return JsonResponse({"status": False, "error": str(e)}, status=500)
 

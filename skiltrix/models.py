@@ -175,8 +175,8 @@ class Courses(models.Model):
 class Videos(models.Model):
     title = models.CharField(max_length=105)
     description = models.TextField()
-    video = models.CharField(max_length=55)
-    image = models.CharField(max_length=50, default="image.webp")
+    video = models.CharField(max_length=255)
+    image = models.CharField(max_length=255, default="image.webp")
     like = models.IntegerField(default=0)
     share = models.IntegerField(default=0)
     views = models.IntegerField(default=0)
@@ -223,6 +223,7 @@ class Comments(models.Model):
             related_name="comment_user_id"
     
         )
+    created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
 
     class Meta: 
         managed = True

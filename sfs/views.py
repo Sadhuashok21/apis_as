@@ -18,6 +18,7 @@ from rest_framework import generics, status
 from .pagination import StandardResultsSetPagination, BlueprintPagination, PlanetPagination, ModsPagination
 
 from .serializers import *
+from apis.cdn_utils import get_sfs_image_url
 
 load_dotenv()
 
@@ -53,7 +54,7 @@ def get_user_object(user_id_input):
         return None
     user_obj = AllUsers.objects.filter(
         Q(user_id=user_id_input) | Q(email=user_id_input) | Q(username=user_id_input)
-    ).first()
+    ).order_by('id').first()
     if not user_obj and str(user_id_input).isdigit():
         user_obj = AllUsers.objects.filter(id=int(user_id_input)).first()
     return user_obj
@@ -276,8 +277,14 @@ def favorites_2_1(request):
     if user_id:
         favorites = Favorites.objects.filter(user_id = user_id, status = 'approved').select_related('bp').values("bp__name", "bp__image", "bp__fviews", "bp__flikes", "bp__fdownloads", "bp__fshare", "bp__comments", "bp__bp_id", "bp__user__name")
         if favorites:
-
-            data.update({"favorites": list(favorites)})
+            fav_list = list(favorites)
+            for f in fav_list:
+                img = f.get("bp__image") or ""
+                f["image"] = img
+                f["image_url"] = get_sfs_image_url(img)
+                f["name"] = f.get("bp__name", "")
+                f["bp_id"] = f.get("bp__bp_id", "")
+            data.update({"favorites": fav_list})
         else:
             data.update({"action": "no"})
             data.update({"favorites": "no"})
@@ -461,10 +468,14 @@ def create_account(request):
 
     if fullname and lastname and email:
 
-        user = AllUsers.objects.filter(email=email).first()
+        user = AllUsers.objects.filter(email=email).order_by('id').first()
 
         if user:
-            data.update({"data": "Email already exists"})
+            data.update({
+                "data": "Email already exists",
+                "user_id": user.user_id,
+                "signin": user.user_id
+            })
             return JsonResponse(data)
         
         create_user = AllUsers.objects.create(email=email,)
@@ -861,51 +872,30 @@ def insert_id(request):
 # 2.1 version start
 
 
-def blueprints_2_1(request):
-    off_str = request.GET.get('off', '').strip()
-    off_value = int(off_str) if off_str.isdigit() and int(off_str) > 0 else 1
+class Blueprints21ListView(generics.ListAPIView):
+    """
+    DRF List view for 2.1 blueprints with PageNumberPagination.
+    Supports ?page=, ?off=, ?page_size=, and optional ?type= / ?category_id= / ?search= filtering.
+    """
+    serializer_class = Blueprint21Serializer
+    pagination_class = BlueprintPagination
 
-    start = (off_value - 1) * 10
-    end = off_value * 10
-    data = {
-        "status": True,
-        "message": "success",
-    }
+    def get_queryset(self):
+        bp_type = self.request.query_params.get("type", "blueprint")
+        category_id = self.request.query_params.get("category_id")
+        search = self.request.query_params.get("search")
+
+        qs = BP.objects.filter(status="approved").select_related('user').prefetch_related('bp_category_bp__category').order_by("-id")
+        if bp_type and bp_type != "all":
+            qs = qs.filter(type=bp_type)
+        if category_id and category_id not in ("all", "All"):
+            qs = qs.filter(bp_category_bp__category__category_id=category_id)
+        if search and search.strip():
+            qs = qs.filter(name__icontains=search.strip())
+        return qs
 
 
-    blueprints = BP.objects.filter(
-    status="approved",
-    type="blueprint"
-    ).select_related('user').prefetch_related('bp_category_bp__category').order_by("-id")[start:end]
-
-    blueprint_list = []
-
-    for bp in blueprints:
-        blueprint_list.append({
-            "name": bp.name,
-            "image": bp.image,
-            "views": bp.fviews,
-            "likes": bp.flikes,
-            "downloads": bp.fdownloads,
-            "share": bp.fshare,
-            "comments": bp.comments,
-            "bp_id": bp.bp_id,
-            "user": bp.user.name,
-
-            "categories": [
-                {
-                    "name": cat.category.bp_name,
-                    "cat_id": cat.category.category_id,
-                }
-                for cat in bp.bp_category_bp.all()
-            ]
-        })
-
-    data.update({
-        "off": off_value,
-        "blueprints": blueprint_list
-    })
-    return JsonResponse(data, safe=False)
+blueprints_2_1 = Blueprints21ListView.as_view()
 
 
 def random_blueprints_2_1(request):
@@ -977,27 +967,42 @@ def profile_2_1(request):
     return JsonResponse(data, safe= False)
 
 
-def planets_2_1(request):
-    off_str = request.GET.get('off', '').strip()
-    off_value = int(off_str) if off_str.isdigit() and int(off_str) > 0 else 1
+class Planets21ListView(generics.ListAPIView):
+    """
+    DRF List view for 2.1 planets with PlanetPagination.
+    Supports ?page=, ?off=, ?page_size=, and optional ?search= filtering.
+    """
+    serializer_class = Blueprint21Serializer
+    pagination_class = PlanetPagination
 
-    start = (off_value - 1) * 10
-    end = off_value * 10
-    data = {
-        "status": True,
-        "message": "success",
-    }
+    def get_queryset(self):
+        search = self.request.query_params.get("search")
+        qs = BP.objects.filter(status="approved", type="planet").select_related('user').prefetch_related('bp_category_bp__category').order_by("-id")
+        if search and search.strip():
+            qs = qs.filter(name__icontains=search.strip())
+        return qs
 
 
-    planets = BP.objects.filter(status="approved", type="planet").order_by("-id")[start:end]
+planets_2_1 = Planets21ListView.as_view()
 
-    data.update({
-        "off": off_value,
-        "planets":  list(planets.values("name", "image", "fviews", "flikes", "fdownloads", "fshare", "comments", "bp_id", "user__name")), 
-        
-    })
 
-    return JsonResponse(data, safe=False)
+class Mods21ListView(generics.ListAPIView):
+    """
+    DRF List view for 2.1 mods with ModsPagination.
+    Supports ?page=, ?off=, ?page_size=, and optional ?search= filtering.
+    """
+    serializer_class = Blueprint21Serializer
+    pagination_class = ModsPagination
+
+    def get_queryset(self):
+        search = self.request.query_params.get("search")
+        qs = BP.objects.filter(status="approved", type="mod").select_related('user').prefetch_related('bp_category_bp__category').order_by("-id")
+        if search and search.strip():
+            qs = qs.filter(name__icontains=search.strip())
+        return qs
+
+
+mods_2_1 = Mods21ListView.as_view()
 
 
 
@@ -1014,8 +1019,10 @@ def inner_bp(request):
         blueprint = BP.objects.filter(bp_id = blueprint_id, status = 'approved')
 
         if blueprint.exists():
-
-            data.update({"blueprints": blueprint.values("fviews", "flikes", "fdownloads", "fshare", "comments", "bp_id", "description", "sfs_link", "zipfiles", "user__name", "image", "name").first()})
+            bp_val = blueprint.values("fviews", "flikes", "fdownloads", "fshare", "comments", "bp_id", "description", "sfs_link", "zipfiles", "user__name", "image", "name").first()
+            if bp_val:
+                bp_val["image_url"] = get_sfs_image_url(bp_val.get("image", ""))
+            data.update({"blueprints": bp_val})
         else:
             data.update({"action": "no blueprint"})
 
@@ -1094,6 +1101,7 @@ def search_2_1(request):
             blueprint_list.append({
                 "name": bp.name,
                 "image": bp.image,
+                "image_url": get_sfs_image_url(bp.image),
                 "views": bp.fviews,
                 "likes": bp.flikes,
                 "downloads": bp.fdownloads,
@@ -1130,17 +1138,20 @@ def categories_2_1(request):
     blueprint_count=Count('bp_categories__bp', distinct=True))
 
 
+    cats_data = list(categories.values(
+        "category_id",
+        "bp_name",
+        "bp_img",
+        "bp_para",
+        "blueprint_count"
+    ))
+    for c in cats_data:
+        c["image_url"] = get_sfs_image_url(c.get("bp_img", ""))
+
     data = {
         "status": True,
         "message": "success",
-        "categories": list(categories.values(
-            "category_id",
-            "bp_name",
-            "bp_img",
-            "bp_para",
-            "blueprint_count"
-        ),
-        )
+        "categories": cats_data
     }
 
 
@@ -1192,6 +1203,7 @@ def inner_cat_2_1(request):
                 blueprint_list.append({
                     "name": bp.bp.name,
                     "image": bp.bp.image,
+                    "image_url": get_sfs_image_url(bp.bp.image),
                     "views": bp.bp.fviews,
                     "likes": bp.bp.flikes,
                     "downloads": bp.bp.fdownloads,

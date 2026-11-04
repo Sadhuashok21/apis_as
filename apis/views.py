@@ -119,7 +119,7 @@ def check_signin(request):
 
 
     if email:
-        user = AllUsers.objects.filter(email=email).first()
+        user = AllUsers.objects.filter(email=email).order_by('id').first()
 
         if user is None:
             return JsonResponse({"status": False, "message": "User not found", "signin": "no"}, safe=False)
@@ -171,10 +171,15 @@ def signup(request):
             print(user_exists.user_id)
             return JsonResponse({"status": False, "message": "Username", "signin": user_exists.user_id}, safe=False)
 
-        user_exists1 = AllUsers.objects.filter(email=email).first()  
+        user_exists1 = AllUsers.objects.filter(email=email).order_by('id').first()  
 
         if user_exists1:
-            return JsonResponse({"status": False, "message": "Email", "signin": user_exists1.user_id}, safe=False)
+            return JsonResponse({
+                "status": True,
+                "message": "Email already exists",
+                "signin": user_exists1.user_id,
+                "user_id": user_exists1.user_id
+            }, safe=False)
 
         user_id = random.unique_id()
         user = AllUsers(
@@ -233,23 +238,50 @@ def check_username(request):
 
 
 def attach_user_id(request):
-    email = request.GET.get('email', '')
+    email = request.GET.get('email', '') or request.POST.get('email', '')
+    name = request.GET.get('name', '') or request.POST.get('name', '')
+    photo = request.GET.get('photo', '') or request.POST.get('photo', '')
 
     data = {
-        "status" : True,
+        "status": True,
         "message": "success"
-    }   
-    
+    }
 
     if email:
-        exists = AllUsers.objects.filter(email=email).first()
+        exists = AllUsers.objects.filter(email=email).order_by('id').first()
 
         if exists:
-            
-            data.update({"message": "success", "signin": exists.user_id})
+            data.update({
+                "message": "success",
+                "signin": exists.user_id,
+                "user_id": exists.user_id,
+            })
             return JsonResponse(data, safe=False)
         else:
-            data.update({"message": "no user"})
+            user_id = unique_id()
+            base_username = (email.split("@")[0] or "user").lower()
+            candidate = base_username
+            idx = 1
+            while AllUsers.objects.filter(username=candidate).exists():
+                candidate = f"{base_username}{idx}"
+                idx += 1
+            user = AllUsers.objects.create(
+                user_id=user_id,
+                username=candidate[:50],
+                email=email[:50],
+                name=(name or candidate)[:50],
+                profile=photo[:500] if photo else "profile.webp",
+                platform="web",
+                platform_name="firebase_sync",
+                type="user",
+                status="approved",
+                ip=random.get_client_ip(request)[:50] if hasattr(random, 'get_client_ip') else "127.0.0.1",
+            )
+            data.update({
+                "message": "success",
+                "signin": user.user_id,
+                "user_id": user.user_id,
+            })
             return JsonResponse(data, safe=False)
 
     else:
