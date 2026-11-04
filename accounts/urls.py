@@ -7,6 +7,7 @@ urlpatterns = [
     path("login/", views.accounts_login, name="accounts_login"),
     path("google/", views.accounts_google_auth, name="accounts_google_auth"),
     path("github/", views.accounts_github_auth, name="accounts_github_auth"),
+    path("firebase/", views.accounts_google_auth, name="accounts_firebase_auth"),
     path("logout/", views.accounts_logout, name="accounts_logout"),
     path("logout-all/", views.accounts_logout_all, name="accounts_logout_all"),
     path("me/", views.accounts_me, name="accounts_me"),

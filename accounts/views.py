@@ -186,6 +186,7 @@ def accounts_signup(request):
     return Response({
         "status": True,
         "message": "Account created successfully.",
+        "user_id": user.user_id,
         "user": user_data,
         "access_token": token,
         "token_type": "Bearer",
@@ -261,6 +262,7 @@ def accounts_login(request):
     return Response({
         "status": True,
         "message": "Login successful.",
+        "user_id": user.user_id,
         "user": UserSerializer(user).data,
         "access_token": token,
         "token_type": "Bearer",
@@ -278,6 +280,7 @@ def accounts_me(request):
     if request.method == "GET":
         return Response({
             "status": True,
+            "user_id": user.user_id,
             "user": UserSerializer(user).data
         })
 
@@ -623,6 +626,7 @@ def accounts_sso_check(request):
         return Response({
             "status": True,
             "authenticated": True,
+            "user_id": user.user_id,
             "user": UserSerializer(user).data,
             "access_token": token,
             "session_id": session.session_id,
@@ -861,6 +865,7 @@ def oauth_token(request):
         "token_type": "Bearer",
         "expires_in": 60 * 60 * 24 * 7,
         "scope": auth_code.scope,
+        "user_id": user.user_id,
         "user": UserSerializer(user).data,
         "session_id": session.session_id,
     })
@@ -916,7 +921,7 @@ def accounts_google_auth(request):
         client_app = ClientApplication.objects.filter(client_id=client_id, is_enabled=True).first()
 
     # Look up user by email
-    user = User.objects.filter(email__iexact=email).first()
+    user = User.objects.filter(email__iexact=email).order_by("id").first()
     if not user:
         base_username = (email.split("@")[0] or "user").lower()
         candidate = base_username
@@ -1031,6 +1036,7 @@ def accounts_google_auth(request):
     return Response({
         "status": True,
         "message": "Google authentication successful.",
+        "user_id": user.user_id,
         "user": UserSerializer(user).data,
         "access_token": token,
         "token_type": "Bearer",
@@ -1068,7 +1074,7 @@ def accounts_github_auth(request):
         client_app = ClientApplication.objects.filter(client_id=client_id, is_enabled=True).first()
 
     # Look up user by email
-    user = User.objects.filter(email__iexact=email).first()
+    user = User.objects.filter(email__iexact=email).order_by("id").first()
     if not user:
         base_username = (username_hint or email.split("@")[0] or "user").lower()
         candidate = base_username
@@ -1183,6 +1189,7 @@ def accounts_github_auth(request):
     return Response({
         "status": True,
         "message": "GitHub authentication successful.",
+        "user_id": user.user_id,
         "user": UserSerializer(user).data,
         "access_token": token,
         "token_type": "Bearer",

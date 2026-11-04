@@ -528,8 +528,23 @@ class VideoSubtitleSerializer(serializers.ModelSerializer):
         fields = ["subtitle_id", "language_code", "label", "vtt_url"]
 
 
+class CommentSerializer(serializers.ModelSerializer):
+    user_name = serializers.ReadOnlyField(source="user.name")
+    video_id = serializers.CharField(source="video.video_id", read_only=True)
+    video_title = serializers.ReadOnlyField(source="video.title")
+
+    class Meta:
+        model = Comments
+        fields = ["id", "comment", "video", "video_id", "video_title", "user", "user_name", "created_at"]
+        extra_kwargs = {
+            "video": {"required": False},
+            "user": {"required": False}
+        }
+
 class VideoDetailSerializer(serializers.ModelSerializer):
     subtitles = VideoSubtitleSerializer(many=True, read_only=True)
+    comments = CommentSerializer(source="comment_video_id", many=True, read_only=True)
+    comments_count = serializers.SerializerMethodField()
     course_id = serializers.CharField(write_only=True, required=False, allow_null=True, allow_blank=True)
     course_name = serializers.ReadOnlyField(source="course.name")
     video_url = serializers.SerializerMethodField()
@@ -540,7 +555,8 @@ class VideoDetailSerializer(serializers.ModelSerializer):
         fields = [
             "video_id", "title", "description", "video", "image",
             "video_url", "image_url",
-            "like", "share", "views", "course", "course_id", "course_name", "subtitles", "created_at"
+            "like", "share", "views", "course", "course_id", "course_name",
+            "subtitles", "comments", "comments_count", "created_at"
         ]
         extra_kwargs = {
             "video_id": {"required": False},
@@ -557,6 +573,9 @@ class VideoDetailSerializer(serializers.ModelSerializer):
     def get_image_url(self, obj):
         from apis.cdn_utils import get_st_image_url
         return get_st_image_url(obj.image)
+
+    def get_comments_count(self, obj):
+        return obj.comment_video_id.count()
 
 
 class CourseDetailSerializer(serializers.ModelSerializer):
@@ -690,12 +709,7 @@ class CodeSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
-class CommentSerializer(serializers.ModelSerializer):
-    user_name = serializers.ReadOnlyField(source="user.name")
-
-    class Meta:
-        model = Comments
-        fields = ["id", "comment", "video", "user", "user_name"]
+# CommentSerializer defined above
 
 
 class RatingSerializer(serializers.ModelSerializer):

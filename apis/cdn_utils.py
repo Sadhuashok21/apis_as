@@ -107,21 +107,42 @@ def get_s3_client():
 def upload_to_r2(file_obj, key: str, content_type: str = None, bucket: str = None) -> str:
     """
     Upload a file-like object to R2 under the specified key.
+    Also saves a local copy under settings.MEDIA_ROOT for local resilience.
     Returns the full CDN URL.
     """
-    s3 = get_s3_client()
-    target_bucket = bucket or R2_BUCKET
+    clean_key = key.lstrip('/')
+    # 1. Save local media copy for development / offline resilience
+    try:
+        local_path = os.path.join(settings.MEDIA_ROOT, clean_key)
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        if hasattr(file_obj, "seek"):
+            file_obj.seek(0)
+        content = file_obj.read()
+        with open(local_path, "wb") as f:
+            f.write(content)
+        if hasattr(file_obj, "seek"):
+            file_obj.seek(0)
+    except Exception as e:
+        print(f"[CDN] Local media backup failed for {clean_key}: {e}")
 
-    kwargs = {
-        "Bucket": target_bucket,
-        "Key": key,
-        "Body": file_obj,
-    }
-    if content_type:
-        kwargs["ContentType"] = content_type
+    # 2. Upload to Cloudflare R2 if available
+    try:
+        s3 = get_s3_client()
+        target_bucket = bucket or R2_BUCKET
 
-    s3.put_object(**kwargs)
-    return f"{CDN_DOMAIN}/{key.lstrip('/')}"
+        kwargs = {
+            "Bucket": target_bucket,
+            "Key": clean_key,
+            "Body": file_obj,
+        }
+        if content_type:
+            kwargs["ContentType"] = content_type
+
+        s3.put_object(**kwargs)
+        return f"{CDN_DOMAIN}/{clean_key}"
+    except Exception as e:
+        print(f"[CDN] R2 upload failed for {clean_key}, using local media URL: {e}")
+        return f"/media/{clean_key}"
 
 
 def upload_sfs_image(file_obj, filename: str = None, content_type: str = None) -> tuple[str, str]:

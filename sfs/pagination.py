@@ -29,10 +29,23 @@ class StandardResultsSetPagination(PageNumberPagination):
         if not field_name:
             field_name = 'results'
 
+        total_pages = self.page.paginator.num_pages
+        current_page = self.page.number
+        first_page = 1 if total_pages > 0 else 1
+        last_page = total_pages
+        next_page = self.page.next_page_number() if self.page.has_next() else None
+        previous_page = self.page.previous_page_number() if self.page.has_previous() else None
+
         return Response({
             'count': self.page.paginator.count,
-            'next': self.get_next_link(),
-            'previous': self.get_previous_link(),
+            'total_pages': total_pages,
+            'current': current_page,
+            'first': first_page,
+            'last': last_page,
+            'next': next_page,
+            'previous': previous_page,
+            'back': previous_page,
+            'off': current_page,
             field_name: data,
         })
 

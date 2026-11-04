@@ -363,21 +363,56 @@ class VideosViewSet(viewsets.ModelViewSet):
     lookup_field = "video_id"
 
     def get_queryset(self):
-        qs = Videos.objects.filter(status="active").prefetch_related("subtitles")
+        qs = Videos.objects.filter(status="active").prefetch_related("subtitles", "comment_video_id")
         course_id = self.request.query_params.get("course_id")
         if course_id:
             qs = qs.filter(course__course_id=course_id)
         return qs
 
     def perform_create(self, serializer):
-        user = AllUsers.objects.first()
+        user = None
+        if hasattr(self.request, "user") and self.request.user.is_authenticated:
+            user = AllUsers.objects.filter(email=self.request.user.email).first()
+        if not user:
+            user = AllUsers.objects.first()
         vid = serializer.validated_data.get("video_id") or f"vid_{uuid.uuid4().hex[:10]}"
-        img = serializer.validated_data.get("image") or "default_video.webp"
-        course_id = self.request.data.get("course_id")
+        img = serializer.validated_data.get("image") or self.request.data.get("image") or "default_video.webp"
+        video_val = serializer.validated_data.get("video") or self.request.data.get("video") or ""
+        course_id = self.request.data.get("course_id") or self.request.data.get("course")
         course = Courses.objects.filter(course_id=course_id).first() if course_id else None
         if not course:
             course = Courses.objects.first()
-        serializer.save(user=user, video_id=vid, image=img[:50], course=course)
+        serializer.save(user=user, video_id=vid, video=video_val, image=img, course=course)
+
+
+class CommentsViewSet(viewsets.ModelViewSet):
+    serializer_class = CommentSerializer
+    queryset = Comments.objects.all().select_related("user", "video").order_by("-id")
+
+    def get_queryset(self):
+        qs = Comments.objects.all().select_related("user", "video").order_by("-id")
+        vid = self.request.query_params.get("video_id") or self.request.query_params.get("video")
+        if vid:
+            qs = qs.filter(video__video_id=vid)
+        return qs
+
+    def perform_create(self, serializer):
+        user = None
+        if hasattr(self.request, "user") and self.request.user.is_authenticated:
+            user = AllUsers.objects.filter(email=self.request.user.email).first()
+        if not user:
+            user_id = self.request.data.get("user_id")
+            if user_id:
+                user = AllUsers.objects.filter(user_id=user_id).first()
+        if not user:
+            user = AllUsers.objects.first()
+
+        vid = self.request.data.get("video_id") or self.request.data.get("video")
+        video = Videos.objects.filter(video_id=vid).first() if vid else None
+        if not video:
+            video = Videos.objects.first()
+
+        serializer.save(user=user, video=video)
 
 
 class CodingProblemsViewSet(viewsets.ReadOnlyModelViewSet):

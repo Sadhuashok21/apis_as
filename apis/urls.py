@@ -56,6 +56,7 @@ urlpatterns = [
     path('api/admin/blueprints/<str:bp_id>/', admin_views.admin_blueprints, name="admin_blueprint_detail"),
     path('api/admin/database/tables/', admin_views.admin_database_tables, name="admin_database_tables"),
     path('api/admin/categories/', admin_views.admin_categories, name="admin_categories"),
+    path('api/admin/categories/<str:cat_id>/', admin_views.admin_categories, name="admin_categories_detail"),
     path('api/admin/transport_hub/', admin_views.admin_transport_hub, name="admin_transport_hub"),
 
     # WhatsApp Cloud API Webhook & Chatbot
