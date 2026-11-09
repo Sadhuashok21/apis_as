@@ -313,3 +313,39 @@ class SiteSetting(models.Model):
     class Meta:
         verbose_name = "Site Setting"
         verbose_name_plural = "Site Settings"
+
+
+class ContactSubmission(models.Model):
+    STATUS_CHOICES = (
+        ("pending", "Pending / New"),
+        ("contacted", "Contacted"),
+        ("in_progress", "In Progress"),
+        ("completed", "Completed"),
+        ("archived", "Archived"),
+    )
+
+    name = models.CharField(max_length=150)
+    email = models.EmailField(max_length=254)
+    phone = models.CharField(max_length=50, blank=True, default="")
+    service = models.CharField(max_length=150, blank=True, default="")
+    budget = models.CharField(max_length=100, blank=True, default="")
+    subject = models.CharField(max_length=255, blank=True, default="")
+    message = models.TextField(blank=True, default="")
+    features = models.TextField(blank=True, default="")
+    tech_stack = models.CharField(max_length=255, blank=True, default="")
+    deployment = models.CharField(max_length=255, blank=True, default="")
+    source_page = models.CharField(max_length=100, default="landing_request")
+    status = models.CharField(max_length=30, choices=STATUS_CHOICES, default="pending")
+    notes = models.TextField(blank=True, default="", help_text="Internal admin notes")
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Contact Submission"
+        verbose_name_plural = "Contact Submissions"
+
+    def __str__(self):
+        return f"{self.name} ({self.email}) - {self.service or self.subject or 'General'}"
+

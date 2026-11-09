@@ -16,4 +16,5 @@ urlpatterns = [
     path("services/<slug:slug>/", views.get_service_detail, name="cms-service-detail"),
     path("faqs/", views.list_faqs, name="cms-faqs-list"),
     path("search/", views.global_search, name="cms-global-search"),
+    path("contact/", views.submit_contact, name="cms-contact-submit"),
 ]

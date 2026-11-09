@@ -7,7 +7,8 @@ from django.db import connection, models
 from django.db.models import Count, Q, Sum
 from django.db.models.functions import TruncDate
 from django.utils import timezone
-from sfs.models import AllUsers, BP, BpCat, BPCategories, TotalActivity, AllErrors
+from sfs.models import AllUsers, BP, BpCat, BPCategories, TotalActivity, AllErrors, BPImages
+from cms.models import ContactSubmission
 from sfs.utils import unique_id, get_client_ip
 from apis.cdn_utils import get_sfs_image_url
 
@@ -29,6 +30,8 @@ def get_admin_stats(request):
 
         total_activity = TotalActivity.objects.count()
         total_errors = AllErrors.objects.count()
+        total_inquiries = ContactSubmission.objects.count()
+        pending_inquiries = ContactSubmission.objects.filter(status="pending").count()
 
         # Recent activities
         recent_activities = []
@@ -55,6 +58,8 @@ def get_admin_stats(request):
                 "total_shares": totals['shares'] or 0,
                 "total_activities": total_activity,
                 "total_errors": total_errors,
+                "total_inquiries": total_inquiries,
+                "pending_inquiries": pending_inquiries,
             },
             "recent_activities": recent_activities
         })
@@ -402,6 +407,14 @@ def admin_blueprints(request, bp_id=None):
                 if not bp:
                     return JsonResponse({"status": False, "error": "Blueprint not found"}, status=404)
                 cats = [c.category.bp_name for c in BPCategories.objects.filter(bp=bp).select_related('category')]
+                gallery = []
+                if bp.image:
+                    gallery.append(get_sfs_image_url(bp.image))
+                for extra in BPImages.objects.filter(bp=bp):
+                    u = get_sfs_image_url(extra.image)
+                    if u and u not in gallery:
+                        gallery.append(u)
+
                 return JsonResponse({
                     "status": True,
                     "blueprint": {
@@ -409,6 +422,7 @@ def admin_blueprints(request, bp_id=None):
                         "name": bp.name,
                         "image": bp.image or "",
                         "image_url": get_sfs_image_url(bp.image),
+                        "images": gallery,
                         "type": bp.type,
                         "categories": cats if cats else ["General"],
                         "downloads": bp.downloads,
@@ -780,3 +794,227 @@ def admin_database_tables(request):
     except Exception as e:
         return JsonResponse({"status": False, "error": str(e)}, status=500)
 
+
+@csrf_exempt
+def admin_contact_submissions(request, submission_id=None):
+    """
+    Admin management endpoint for user contact inquiries and development requests:
+    - GET: list submissions with filtering, search, pagination, and status metrics
+    - PATCH/PUT: update submission status or admin notes
+    - DELETE: delete inquiry
+    """
+    if request.method == "GET":
+        try:
+            target_id = submission_id or request.GET.get("id")
+            if target_id:
+                item = ContactSubmission.objects.filter(id=target_id).first()
+                if not item:
+                    return JsonResponse({"status": False, "error": "Inquiry not found"}, status=404)
+                return JsonResponse({
+                    "status": True,
+                    "submission": {
+                        "id": item.id,
+                        "name": item.name,
+                        "email": item.email,
+                        "phone": item.phone,
+                        "service": item.service,
+                        "budget": item.budget,
+                        "subject": item.subject,
+                        "message": item.message,
+                        "features": item.features,
+                        "tech_stack": item.tech_stack,
+                        "deployment": item.deployment,
+                        "source_page": item.source_page,
+                        "status": item.status,
+                        "notes": item.notes,
+                        "ip_address": item.ip_address,
+                        "created_at": item.created_at.strftime("%Y-%m-%d %H:%M:%S") if item.created_at else "",
+                        "updated_at": item.updated_at.strftime("%Y-%m-%d %H:%M:%S") if item.updated_at else "",
+                    }
+                })
+
+            qs = ContactSubmission.objects.all().order_by("-id")
+
+            # Filters
+            status_filter = request.GET.get("status")
+            if status_filter and status_filter != "all":
+                qs = qs.filter(status=status_filter)
+
+            source_filter = request.GET.get("source")
+            if source_filter and source_filter != "all":
+                qs = qs.filter(source_page=source_filter)
+
+            search_query = request.GET.get("search", "").strip()
+            if search_query:
+                qs = qs.filter(
+                    Q(name__icontains=search_query) |
+                    Q(email__icontains=search_query) |
+                    Q(phone__icontains=search_query) |
+                    Q(service__icontains=search_query) |
+                    Q(subject__icontains=search_query) |
+                    Q(message__icontains=search_query)
+                )
+
+            # Metric counts
+            total_count = ContactSubmission.objects.count()
+            pending_count = ContactSubmission.objects.filter(status="pending").count()
+            contacted_count = ContactSubmission.objects.filter(status="contacted").count()
+            in_progress_count = ContactSubmission.objects.filter(status="in_progress").count()
+            completed_count = ContactSubmission.objects.filter(status="completed").count()
+
+            # Pagination
+            try:
+                page = int(request.GET.get("page", 1))
+            except ValueError:
+                page = 1
+            try:
+                page_size = int(request.GET.get("page_size", 20))
+            except ValueError:
+                page_size = 20
+
+            filtered_count = qs.count()
+            start = (page - 1) * page_size
+            end = start + page_size
+            items = qs[start:end]
+
+            submissions_list = []
+            for item in items:
+                submissions_list.append({
+                    "id": item.id,
+                    "name": item.name,
+                    "email": item.email,
+                    "phone": item.phone,
+                    "service": item.service,
+                    "budget": item.budget,
+                    "subject": item.subject,
+                    "message": item.message,
+                    "features": item.features,
+                    "tech_stack": item.tech_stack,
+                    "deployment": item.deployment,
+                    "source_page": item.source_page,
+                    "status": item.status,
+                    "notes": item.notes,
+                    "ip_address": item.ip_address,
+                    "created_at": item.created_at.strftime("%Y-%m-%d %H:%M:%S") if item.created_at else "",
+                    "updated_at": item.updated_at.strftime("%Y-%m-%d %H:%M:%S") if item.updated_at else "",
+                })
+
+            return JsonResponse({
+                "status": True,
+                "submissions": submissions_list,
+                "total": filtered_count,
+                "page": page,
+                "page_size": page_size,
+                "metrics": {
+                    "total": total_count,
+                    "pending": pending_count,
+                    "contacted": contacted_count,
+                    "in_progress": in_progress_count,
+                    "completed": completed_count,
+                }
+            })
+        except Exception as e:
+            return JsonResponse({"status": False, "error": str(e)}, status=500)
+
+    elif request.method in ["PATCH", "PUT"]:
+        try:
+            body = json.loads(request.body.decode("utf-8")) if request.body else {}
+            target_id = submission_id or body.get("id")
+            if not target_id:
+                return JsonResponse({"status": False, "error": "Submission ID is required"}, status=400)
+
+            item = ContactSubmission.objects.filter(id=target_id).first()
+            if not item:
+                return JsonResponse({"status": False, "error": "Inquiry not found"}, status=404)
+
+            if "status" in body:
+                item.status = body["status"]
+            if "notes" in body:
+                item.notes = body["notes"]
+            item.save()
+
+            return JsonResponse({
+                "status": True,
+                "message": "Submission updated successfully",
+                "submission": {
+                    "id": item.id,
+                    "status": item.status,
+                    "notes": item.notes,
+                    "updated_at": item.updated_at.strftime("%Y-%m-%d %H:%M:%S") if item.updated_at else "",
+                }
+            })
+        except Exception as e:
+            return JsonResponse({"status": False, "error": str(e)}, status=500)
+
+    elif request.method == "DELETE":
+        try:
+            target_id = submission_id or request.GET.get("id")
+            if not target_id:
+                return JsonResponse({"status": False, "error": "Submission ID is required"}, status=400)
+
+            item = ContactSubmission.objects.filter(id=target_id).first()
+            if not item:
+                return JsonResponse({"status": False, "error": "Inquiry not found"}, status=404)
+
+            item.delete()
+            return JsonResponse({"status": True, "message": "Submission deleted successfully"})
+        except Exception as e:
+            return JsonResponse({"status": False, "error": str(e)}, status=500)
+
+    return JsonResponse({"status": False, "error": "Method not allowed"}, status=405)
+
+
+@csrf_exempt
+def admin_blueprint_images(request, bp_id):
+    """Upload or delete additional screenshots for a blueprint."""
+    bp = BP.objects.filter(bp_id=bp_id).first()
+    if not bp:
+        return JsonResponse({"status": False, "error": "Blueprint not found"}, status=404)
+
+    if request.method == "POST":
+        images_list = request.FILES.getlist('images') or request.FILES.getlist('image')
+        if not images_list:
+            single = request.FILES.get('image') or request.FILES.get('images')
+            if single:
+                images_list = [single]
+        if not images_list:
+            return JsonResponse({"status": False, "error": "No image files provided"}, status=400)
+
+        uploaded = []
+        for img in images_list:
+            from apis.cdn_utils import upload_sfs_image
+            fn, url = upload_sfs_image(img)
+            BPImages.objects.create(
+                bp=bp,
+                image=fn,
+                status="approved",
+                time=timezone.now(),
+            )
+            uploaded.append(url)
+
+        gallery = []
+        if bp.image:
+            gallery.append(get_sfs_image_url(bp.image))
+        for extra in BPImages.objects.filter(bp=bp):
+            u = get_sfs_image_url(extra.image)
+            if u and u not in gallery:
+                gallery.append(u)
+
+        return JsonResponse({"status": True, "images": gallery, "uploaded": uploaded})
+
+    elif request.method == "DELETE":
+        image_url_or_name = request.GET.get('image', '').strip()
+        if not image_url_or_name:
+            try:
+                body = json.loads(request.body.decode('utf-8'))
+                image_url_or_name = body.get('image', '').strip()
+            except Exception:
+                pass
+
+        if image_url_or_name:
+            filename = image_url_or_name.split('/')[-1]
+            BPImages.objects.filter(bp=bp, image=filename).delete()
+            return JsonResponse({"status": True, "message": "Image deleted"})
+        return JsonResponse({"status": False, "error": "Image filename or URL required"}, status=400)
+
+    return JsonResponse({"status": False, "error": "Method not allowed"}, status=405)

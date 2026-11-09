@@ -1998,3 +1998,13 @@ from .hardware_models import (
     HardwareBuildJob,
     ConnectedDevice,
 )
+
+# ==============================================================================
+# DYNAMIC COURSE CONTENT MANAGEMENT (GUTENBERG / WORDPRESS-LIKE BUILDER)
+# ==============================================================================
+from .cms_models import (
+    CmsCourse,
+    CmsPage,
+    CmsMedia,
+    CmsBuildJob,
+)
