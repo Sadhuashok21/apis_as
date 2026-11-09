@@ -123,7 +123,6 @@ class Upload(View):
 
     def post(self, request):
         name = request.POST.get('name', '').strip()
-        image = request.FILES.get('image', '')
         zipfile = request.FILES.get('zip_file', '')
         sfs_link = request.POST.get('sfs_link', '').strip()
         raw_type = request.POST.get('type', '').strip().lower()
@@ -131,6 +130,17 @@ class Upload(View):
         description = request.POST.get('description', '').strip()
       
         categories = request.POST.getlist('categories')
+
+        # Support multiple image uploads
+        image_files = request.FILES.getlist('images')
+        if not image_files:
+            image_files = request.FILES.getlist('image')
+        if not image_files:
+            single_img = request.FILES.get('image') or request.FILES.get('images')
+            if single_img:
+                image_files = [single_img]
+
+        primary_image = image_files[0] if image_files else None
 
         # Normalize type: blueprint, planet, mod
         if raw_type in ('bp', 'blueprint'):
@@ -163,18 +173,23 @@ class Upload(View):
         user_obj = get_user_object(user_id)
         effective_user_id = user_obj.user_id if user_obj and hasattr(user_obj, 'user_id') else user_id
         
-        if name and image and zipfile and item_type and effective_user_id:
+        if name and primary_image and zipfile and item_type and effective_user_id:
             import boto3
-            new_image = unique_id() + "." + image.name.split('.')[-1]
+            primary_ext = primary_image.name.split('.')[-1].lower() if '.' in primary_image.name else 'png'
+            new_image = f"{unique_id()}.{primary_ext}"
             new_zip = unique_id() + "." + zipfile.name.split('.')[-1]
 
-            s3 = boto3.client(
-                service_name="s3",
-                endpoint_url=os.getenv("endpoint_url"),
-                aws_access_key_id=os.getenv("aws_access_key_id"),
-                aws_secret_access_key=os.getenv("aws_secret_access_key"),
-                region_name="auto",
-            )
+            s3 = None
+            try:
+                s3 = boto3.client(
+                    service_name="s3",
+                    endpoint_url=os.getenv("endpoint_url"),
+                    aws_access_key_id=os.getenv("aws_access_key_id"),
+                    aws_secret_access_key=os.getenv("aws_secret_access_key"),
+                    region_name="auto",
+                )
+            except Exception as e:
+                print("Failed to initialize S3 client:", e)
 
             bp_id = unique_id()
             effective_sfs_link = sfs_link if sfs_link else "none"
@@ -211,22 +226,59 @@ class Upload(View):
                         status="approved",
                     )
 
-            s3.put_object(
-                Bucket="sfs-blueprints",
-                Key="sfs/images/" + new_image,
-                Body=image,
-                ContentType=image.content_type,
-            )
+            # Upload all images (primary + additional screenshots) and record in BPImages table
+            gallery_urls = []
+            for idx, img_item in enumerate(image_files):
+                if idx == 0:
+                    img_name = new_image
+                    if s3:
+                        try:
+                            s3.put_object(
+                                Bucket="sfs-blueprints",
+                                Key="sfs/images/" + img_name,
+                                Body=img_item,
+                                ContentType=getattr(img_item, 'content_type', 'image/png'),
+                            )
+                        except Exception as s3_err:
+                            print("S3 primary image upload error:", s3_err)
+                else:
+                    ext = img_item.name.split('.')[-1].lower() if '.' in img_item.name else 'png'
+                    img_name = f"{unique_id()}.{ext}"
+                    if s3:
+                        try:
+                            if hasattr(img_item, 'seek'):
+                                img_item.seek(0)
+                            s3.put_object(
+                                Bucket="sfs-blueprints",
+                                Key="sfs/images/" + img_name,
+                                Body=img_item,
+                                ContentType=getattr(img_item, 'content_type', 'image/png'),
+                            )
+                        except Exception as s3_err:
+                            print(f"S3 extra screenshot upload error ({img_name}):", s3_err)
 
-            s3.put_object(
-                Bucket="sfs-blueprints",
-                Key="sfs/zipfiles/" + new_zip,
-                Body=zipfile,
-                ContentType=zipfile.content_type,
-            )
+                BPImages.objects.create(
+                    bp=bp,
+                    image=img_name,
+                    status="approved",
+                    time=timezone.now(),
+                )
+                gallery_urls.append(f"https://cdn.ascentracoresolutions.com/sfs/images/{img_name}")
+
+            if s3:
+                try:
+                    s3.put_object(
+                        Bucket="sfs-blueprints",
+                        Key="sfs/zipfiles/" + new_zip,
+                        Body=zipfile,
+                        ContentType=getattr(zipfile, 'content_type', 'application/zip'),
+                    )
+                except Exception as s3_err:
+                    print("S3 zip upload error:", s3_err)
 
             data.update({
                 "image_url": f"https://cdn.ascentracoresolutions.com/sfs/images/{new_image}",
+                "images": gallery_urls,
                 "zip_url": f"https://cdn.ascentracoresolutions.com/sfs/zipfiles/{new_zip}",
                 "bp_id": bp_id,
                 "type": item_type,
@@ -237,7 +289,7 @@ class Upload(View):
         else:
             missing = []
             if not name: missing.append("name")
-            if not image: missing.append("image")
+            if not primary_image: missing.append("image")
             if not zipfile: missing.append("file")
             if not item_type: missing.append("type")
             if not effective_user_id: missing.append("user_id")
@@ -722,26 +774,62 @@ def pla_page(request):
 
 
 def inner_bp(request):
-    blueprint_id = request.GET.get('bp_id', '')
-
-    data = {
-        "status": True,
-        "message": "success",
-        }
+    blueprint_id = request.GET.get('bp_id', '').strip()
 
     if blueprint_id:
-        
-        blueprint = BP.objects.filter(bp_id = blueprint_id, status = 'approved').first()
+        blueprint = BP.objects.filter(bp_id=blueprint_id).first()
 
         if blueprint:
+            cats = []
+            for c in BPCategories.objects.filter(bp=blueprint).select_related('category'):
+                if c.category:
+                    cats.append({
+                        "name": c.category.bp_name,
+                        "cat_id": c.category.category_id,
+                    })
 
-            data.update({"blueprints": list(blueprint)})
+            gallery = []
+            if blueprint.image:
+                gallery.append(get_sfs_image_url(blueprint.image))
+            for extra in BPImages.objects.filter(bp=blueprint):
+                url = get_sfs_image_url(extra.image)
+                if url and url not in gallery:
+                    gallery.append(url)
+
+            bp_dict = {
+                "bp_id": blueprint.bp_id,
+                "name": blueprint.name,
+                "image": blueprint.image,
+                "image_url": get_sfs_image_url(blueprint.image),
+                "images": gallery,
+                "description": blueprint.description or "",
+                "sfs_link": blueprint.sfs_link or "",
+                "zipfiles": blueprint.zipfiles or "",
+                "type": blueprint.type or "blueprint",
+                "status": blueprint.status or "approved",
+                "views": blueprint.views,
+                "downloads": blueprint.downloads,
+                "likes": blueprint.likes,
+                "share": blueprint.share,
+                "fviews": blueprint.fviews,
+                "fdownloads": blueprint.fdownloads,
+                "flikes": blueprint.flikes,
+                "fshare": blueprint.fshare,
+                "comments": blueprint.comments,
+                "user": blueprint.user.name if blueprint.user else "Spaceflight Simulator",
+                "user__name": blueprint.user.name if blueprint.user else "Spaceflight Simulator",
+                "categories": cats,
+            }
+
+            return JsonResponse({
+                "status": True,
+                "message": "success",
+                "blueprints": bp_dict
+            }, safe=False)
         else:
-            data.update({"action": "no blueprint"})
-
+            return JsonResponse({"status": False, "action": "no blueprint", "message": "Blueprint not found"}, safe=False)
     else:
-        data.update({"message": "empty"})
-    return JsonResponse(data, safe=False)
+        return JsonResponse({"status": False, "message": "empty"}, safe=False)
 
 
 
@@ -1019,32 +1107,7 @@ mods_2_1 = Mods21ListView.as_view()
 
 
 
-def inner_bp(request):
-    blueprint_id = request.GET.get('bp_id', '')
-
-    data = {
-        "status": True,
-        "message": "success",
-        }
-
-    if blueprint_id:
-        
-        blueprint = BP.objects.filter(bp_id = blueprint_id, status = 'approved')
-
-        if blueprint.exists():
-            bp_val = blueprint.values("fviews", "flikes", "fdownloads", "fshare", "comments", "bp_id", "description", "sfs_link", "zipfiles", "user__name", "image", "name").first()
-            if bp_val:
-                bp_val["image_url"] = get_sfs_image_url(bp_val.get("image", ""))
-            data.update({"blueprints": bp_val})
-        else:
-            data.update({"action": "no blueprint"})
-
-    else:
-        data.update({"message": "empty"})
-    return JsonResponse(data, safe=False)
-
-
-
+# legacy duplicate inner_bp removed
 def add_favorite(request):
     user_id = request.GET.get('user_id', '')
     bp_pla_id = request.GET.get('bp_pla_id', '')

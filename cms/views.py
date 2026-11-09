@@ -17,6 +17,7 @@ from .models import (
     Service,
     FAQ,
     SiteSetting,
+    ContactSubmission,
 )
 from .serializers import (
     CategorySerializer,
@@ -33,6 +34,7 @@ from .serializers import (
     ServiceSerializer,
     FAQSerializer,
     SiteSettingSerializer,
+    ContactSubmissionSerializer,
 )
 
 
@@ -391,6 +393,19 @@ def generate_sitemap_xml(request):
     for svc in Service.objects.filter(is_active=True):
         xml_lines.append(f'  <url><loc>{domain}/services/{svc.slug}</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>')
 
+    # Dynamic SkilTrix CMS Courses & Published Pages (WordPress-style CMS)
+    try:
+        from skiltrix.cms_models import CmsCourse, CmsPage
+        for c in CmsCourse.objects.filter(status="published"):
+            xml_lines.append(f'  <url><loc>{domain}/courses/{c.slug}/</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>')
+        for p in CmsPage.objects.filter(status="published"):
+            lastmod = p.updated_at.strftime("%Y-%m-%d") if p.updated_at else ""
+            lastmod_tag = f'<lastmod>{lastmod}</lastmod>' if lastmod else ""
+            clean_url = p.url_path if p.url_path.startswith('/') else f'/{p.url_path}'
+            xml_lines.append(f'  <url><loc>{domain}{clean_url}</loc>{lastmod_tag}<changefreq>weekly</changefreq><priority>0.8</priority></url>')
+    except Exception:
+        pass
+
     xml_lines.append('</urlset>')
 
     return HttpResponse("\n".join(xml_lines), content_type="application/xml")
@@ -428,4 +443,59 @@ Disallow: /upload
 Sitemap: https://ascentracoresolutions.com/sitemap.xml
 """
     return HttpResponse(content, content_type="text/plain")
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def submit_contact(request):
+    """
+    Public endpoint to submit a contact inquiry or development request from the main frontend.
+    Accepts JSON or multipart/form-data.
+    """
+    try:
+        data = request.data.copy() if hasattr(request.data, "copy") else dict(request.data)
+
+        # Extract client IP
+        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(",")[0].strip()
+        else:
+            ip = request.META.get("REMOTE_ADDR")
+        data["ip_address"] = ip
+
+        # Handle deployment array if sent as list
+        deployment_val = data.get("deployment")
+        if isinstance(deployment_val, list):
+            data["deployment"] = ", ".join(str(d) for d in deployment_val)
+
+        # Handle fallback for message/description
+        if not data.get("message") and data.get("description"):
+            data["message"] = data.get("description")
+
+        serializer = ContactSubmissionSerializer(data=data)
+        if serializer.is_valid():
+            submission = serializer.save()
+            return Response(
+                {
+                    "status": True,
+                    "message": "Thank you! Your request has been recorded. Our team will get back to you shortly.",
+                    "id": submission.id,
+                },
+                status=status.HTTP_201_CREATED,
+            )
+        else:
+            return Response(
+                {
+                    "status": False,
+                    "error": "Validation failed",
+                    "details": serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+    except Exception as e:
+        return Response(
+            {"status": False, "error": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
 

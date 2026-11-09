@@ -19,6 +19,7 @@ from django.urls import path, include
 from django.http import HttpResponse
 from . import views
 from . import admin_views
+from . import admin_accounts_views
 from skiltrix import payments_admin
 from skiltrix.admin import company_assessments_dashboard_view
 from django.conf import settings
@@ -40,11 +41,21 @@ urlpatterns = [
     # Public Content Management System REST APIs
     path('api/content/', include('cms.urls')),
 
+    # SkilTrix Dynamic Course Page Builder (Gutenberg / CMS) APIs
+    path('api/admin/cms/', include('skiltrix.cms_urls')),
+    path('api/cms/', include('skiltrix.cms_urls')),
+
     # Authenticated SkilTrix administration for compiler pricing and coupons
     path('api/admin/compiler-pricing/', payments_admin.product_config, name="compiler-product-config"),
     path('api/admin/compiler-coupons/', payments_admin.coupon_management, name="compiler-coupons"),
     path('api/admin/compiler-coupons/<int:coupon_id>/', payments_admin.coupon_management, name="compiler-coupon-detail"),
     path('api/admin/compiler-payment-report/', payments_admin.payment_report, name="compiler-payment-report"),
+
+    # Admin Accounts & Privilege Management Endpoints
+    path('api/admin/accounts/', admin_accounts_views.admin_accounts, name="admin_accounts"),
+    path('api/admin/accounts/promote/', admin_accounts_views.admin_account_promote, name="admin_account_promote"),
+    path('api/admin/accounts/search-users/', admin_accounts_views.admin_search_users, name="admin_search_users"),
+    path('api/admin/accounts/<str:user_id>/', admin_accounts_views.admin_account_detail, name="admin_account_detail"),
 
     # Admin Management REST API Endpoints
     path('api/admin/stats/', admin_views.get_admin_stats, name="admin_stats"),
@@ -54,10 +65,13 @@ urlpatterns = [
     path('api/admin/logs/', admin_views.admin_logs, name="admin_logs"),
     path('api/admin/blueprints/', admin_views.admin_blueprints, name="admin_blueprints"),
     path('api/admin/blueprints/<str:bp_id>/', admin_views.admin_blueprints, name="admin_blueprint_detail"),
+    path('api/admin/blueprints/<str:bp_id>/images/', admin_views.admin_blueprint_images, name="admin_blueprint_images"),
     path('api/admin/database/tables/', admin_views.admin_database_tables, name="admin_database_tables"),
     path('api/admin/categories/', admin_views.admin_categories, name="admin_categories"),
     path('api/admin/categories/<str:cat_id>/', admin_views.admin_categories, name="admin_categories_detail"),
     path('api/admin/transport_hub/', admin_views.admin_transport_hub, name="admin_transport_hub"),
+    path('api/admin/contacts/', admin_views.admin_contact_submissions, name="admin_contact_submissions"),
+    path('api/admin/contacts/<int:submission_id>/', admin_views.admin_contact_submissions, name="admin_contact_submission_detail"),
 
     # WhatsApp Cloud API Webhook & Chatbot
     path('api/whatsapp/', include('whatsapp.urls')),

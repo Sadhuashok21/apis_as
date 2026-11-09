@@ -11,6 +11,7 @@ from .models import (
     Service,
     FAQ,
     SiteSetting,
+    ContactSubmission,
 )
 
 
@@ -178,3 +179,11 @@ class SiteSettingSerializer(serializers.ModelSerializer):
     class Meta:
         model = SiteSetting
         fields = "__all__"
+
+
+class ContactSubmissionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ContactSubmission
+        fields = "__all__"
+        read_only_fields = ["id", "created_at", "updated_at"]
+
