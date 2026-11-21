@@ -16,7 +16,6 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from django.http import HttpResponse
 from . import views
 from . import admin_views
 from . import admin_accounts_views
@@ -35,8 +34,6 @@ urlpatterns = [
     path('', views.index, name="index"),
     path('sitemap.xml', generate_sitemap_xml, name="sitemap_xml"),
     path('robots.txt', generate_robots_txt, name="robots_txt"),
-    path('ads.txt', lambda r: HttpResponse(ADS_TXT_CONTENT, content_type="text/plain"), name="ads_txt"),
-    path('app-ads.txt', lambda r: HttpResponse(ADS_TXT_CONTENT, content_type="text/plain"), name="app_ads_txt"),
 
     # Public Content Management System REST APIs
     path('api/content/', include('cms.urls')),
@@ -73,8 +70,6 @@ urlpatterns = [
     path('api/admin/contacts/', admin_views.admin_contact_submissions, name="admin_contact_submissions"),
     path('api/admin/contacts/<int:submission_id>/', admin_views.admin_contact_submissions, name="admin_contact_submission_detail"),
 
-    # WhatsApp Cloud API Webhook & Chatbot
-    path('api/whatsapp/', include('whatsapp.urls')),
 
     # Central Accounts & SSO Identity System
     path('api/accounts/', include('accounts.urls')),

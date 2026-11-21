@@ -4,6 +4,7 @@ from . import views
 urlpatterns = [
     # Core Authentication
     path("signup/", views.accounts_signup, name="accounts_signup"),
+    path("register/", views.accounts_signup, name="accounts_register"),
     path("login/", views.accounts_login, name="accounts_login"),
     path("google/", views.accounts_google_auth, name="accounts_google_auth"),
     path("github/", views.accounts_github_auth, name="accounts_github_auth"),

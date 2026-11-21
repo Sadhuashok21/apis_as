@@ -60,7 +60,7 @@ class GlobalAccountsAuthentication(BaseAuthentication):
             # Not an SSO token or expired, try legacy token format
             pass
         except User.DoesNotExist:
-            raise AuthenticationFailed("User account associated with this token no longer exists.")
+            return None
 
         # 2. Backward compatibility: Attempt legacy skiltrix token decode
         try:
@@ -71,7 +71,7 @@ class GlobalAccountsAuthentication(BaseAuthentication):
             self._validate_user_status(legacy_user)
             return (legacy_user, raw_token)
         except (UnicodeDecodeError, signing.BadSignature, signing.SignatureExpired, User.DoesNotExist):
-            raise AuthenticationFailed("Access token is invalid or expired.")
+            return None
 
     def _validate_user_status(self, user):
         if hasattr(user, "is_active") and not user.is_active:

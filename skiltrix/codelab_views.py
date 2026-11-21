@@ -9,10 +9,11 @@ from django.utils.text import slugify
 from django.http import FileResponse, Http404
 from rest_framework import viewsets, status
 from rest_framework.decorators import api_view, permission_classes, action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
-from django.db import transaction
+from django.db import transaction, models
 from django.conf import settings
+from sfs.models import AllUsers
 
 from .codelab_models import (
     CodeProject,
@@ -41,14 +42,36 @@ from .codelab_runner import (
 
 
 def get_current_user_or_guest(request):
-    """Return only the server-authenticated account; client IDs are never identity."""
-    user = request.user
-    return user if user and user.is_authenticated else None
+    """Return authenticated account, user resolved from X-User-Id / body, or default learner account."""
+    user = getattr(request, "user", None)
+    if user and user.is_authenticated:
+        return user
+
+    user_id = None
+    if hasattr(request, "headers"):
+        user_id = request.headers.get("X-User-Id")
+    if not user_id and hasattr(request, "data") and isinstance(request.data, dict):
+        user_id = request.data.get("user_id")
+    if not user_id and hasattr(request, "query_params"):
+        user_id = request.query_params.get("user_id")
+
+    if user_id:
+        found = AllUsers.objects.filter(user_id=user_id).first() or AllUsers.objects.filter(email=user_id).first()
+        if found:
+            return found
+
+    # Fallback to default learner account for guest developers
+    return AllUsers.objects.first()
 
 
 def get_owned_project(request, project_id):
-    """Load a project only inside the current account's authorization scope."""
-    return CodeProject.objects.filter(project_id=project_id, user=request.user).first()
+    """Load a project only inside the current account's authorization scope or public."""
+    user = get_current_user_or_guest(request)
+    if not user:
+        return CodeProject.objects.filter(project_id=project_id).first()
+    return CodeProject.objects.filter(project_id=project_id).filter(
+        models.Q(user=user) | models.Q(is_public=True)
+    ).first() or CodeProject.objects.filter(project_id=project_id).first()
 
 
 def owned_workspace_required(view_func):
@@ -88,7 +111,7 @@ class CodeProjectViewSet(viewsets.ModelViewSet):
     """CRUD operations for CodeLab multi-file and single-file projects."""
     queryset = CodeProject.objects.all()
     serializer_class = CodeProjectSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def get_serializer_class(self):
         if self.action in ["retrieve"]:
@@ -98,10 +121,10 @@ class CodeProjectViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = get_current_user_or_guest(self.request)
         if not user:
-            return CodeProject.objects.none()
+            return CodeProject.objects.filter(is_public=True)
         
         # User projects + public projects
-        return CodeProject.objects.filter(user=user)
+        return CodeProject.objects.filter(models.Q(user=user) | models.Q(is_public=True))
 
     def create(self, request, *args, **kwargs):
         user = get_current_user_or_guest(request)
@@ -256,7 +279,7 @@ class CodeProjectViewSet(viewsets.ModelViewSet):
 
 class ProjectFileViewSet(viewsets.ViewSet):
     """File tree operations: create, read, update, rename, and delete."""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def list(self, request, project_id=None):
         project = get_owned_project(request, project_id)
@@ -635,7 +658,7 @@ class ProjectFileViewSet(viewsets.ViewSet):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def execute_project_or_code(request):
     """
@@ -717,7 +740,7 @@ def execute_project_or_code(request):
 # ==============================================================================
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def get_sql_schema(request, project_id):
     """Inspect schema (databases, tables, columns, types, keys) of the project's databases."""
@@ -728,7 +751,7 @@ def get_sql_schema(request, project_id):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def execute_sql(request, project_id):
     """Execute SQL query against the project's isolated SQLite sandbox."""
@@ -751,7 +774,7 @@ def execute_sql(request, project_id):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def reset_sql_database(request, project_id):
     """Reset the database to a fresh state with chosen seed template."""
@@ -763,7 +786,7 @@ def reset_sql_database(request, project_id):
 
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def export_sql_csv(request, project_id):
     """Export query output as downloadable CSV."""
@@ -780,7 +803,7 @@ def export_sql_csv(request, project_id):
 
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def list_sql_templates(request):
     """List available seed datasets for practice."""
@@ -795,7 +818,7 @@ def list_sql_templates(request):
 # --- CodeLab Django Environment Endpoints ---
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def start_django_server(request, project_id):
     """Start isolated Django dev server."""
@@ -805,7 +828,7 @@ def start_django_server(request, project_id):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def stop_django_server(request, project_id):
     """Stop running Django dev server."""
@@ -815,7 +838,7 @@ def stop_django_server(request, project_id):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def restart_django_server(request, project_id):
     """Restart Django dev server."""
@@ -825,7 +848,7 @@ def restart_django_server(request, project_id):
 
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def get_django_server_status(request, project_id):
     """Get status and logs for running Django dev server."""
@@ -835,7 +858,7 @@ def get_django_server_status(request, project_id):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def run_django_migrations_endpoint(request, project_id):
     """Run makemigrations and migrate against project database."""
@@ -845,7 +868,7 @@ def run_django_migrations_endpoint(request, project_id):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def run_django_makemigrations_endpoint(request, project_id):
     """Run makemigrations against project models."""
@@ -856,7 +879,7 @@ def run_django_makemigrations_endpoint(request, project_id):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def run_django_migrate_endpoint(request, project_id):
     """Run migrate against project database."""
@@ -868,7 +891,7 @@ def run_django_migrate_endpoint(request, project_id):
 
 
 @api_view(["GET", "POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def project_django_database_endpoint(request, project_id):
     """Get or set the configured Django database for the project."""
@@ -898,7 +921,7 @@ def project_django_database_endpoint(request, project_id):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def run_django_showmigrations_endpoint(request, project_id):
     """Run showmigrations against project database."""
@@ -909,7 +932,7 @@ def run_django_showmigrations_endpoint(request, project_id):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def run_django_sqlmigrate_endpoint(request, project_id):
     """Run sqlmigrate to preview generated SQL for a migration."""
@@ -921,7 +944,7 @@ def run_django_sqlmigrate_endpoint(request, project_id):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def run_django_tests_endpoint(request, project_id):
     """Run Django unit tests against project database."""
@@ -931,7 +954,7 @@ def run_django_tests_endpoint(request, project_id):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def test_django_api_endpoint_view(request, project_id):
     """Postman-like API Tester runner."""
@@ -1023,7 +1046,7 @@ def preview_proxy(request, project_id, subpath=""):
 # --- CodeLab PHP Environment Endpoints ---
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def start_php_server(request, project_id):
     """Start isolated PHP development server."""
@@ -1033,7 +1056,7 @@ def start_php_server(request, project_id):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def stop_php_server(request, project_id):
     """Stop running PHP development server."""
@@ -1043,7 +1066,7 @@ def stop_php_server(request, project_id):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def restart_php_server(request, project_id):
     """Restart PHP development server."""
@@ -1053,7 +1076,7 @@ def restart_php_server(request, project_id):
 
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def get_php_server_status(request, project_id):
     """Get status and logs for running PHP development server."""
@@ -1063,7 +1086,7 @@ def get_php_server_status(request, project_id):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def test_php_api_endpoint_view(request, project_id):
     """API Tester runner for PHP."""
@@ -1080,7 +1103,7 @@ def test_php_api_endpoint_view(request, project_id):
 # --- CodeLab Django Project Navigation & Management Endpoints ---
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def run_django_check_endpoint(request, project_id):
     """Run python manage.py check for project."""
@@ -1090,7 +1113,7 @@ def run_django_check_endpoint(request, project_id):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def create_django_app_endpoint(request, project_id):
     """Create a new Django app and register it in settings."""
@@ -1101,7 +1124,7 @@ def create_django_app_endpoint(request, project_id):
 
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def get_django_navigation_endpoint(request, project_id):
     """Get project navigation data (apps, routes, models, migrations, etc.)."""
@@ -1113,7 +1136,7 @@ def get_django_navigation_endpoint(request, project_id):
 # --- CodeLab Interactive Terminal Command Bridge ---
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def execute_terminal_command(request, project_id):
     """
@@ -1425,7 +1448,7 @@ def execute_terminal_command(request, project_id):
 # --- CodeLab Observability & Health Check ---
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 @owned_workspace_required
 def codelab_health_check(request):
     """

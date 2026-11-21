@@ -254,10 +254,28 @@ def videos(request):
     }
     from apis.cdn_utils import get_st_video_url, get_st_image_url
     video_list = []
-    for v in Videos.objects.filter(status="active").values():
-        v["video_url"] = get_st_video_url(v.get("video", ""))
-        v["image_url"] = get_st_image_url(v.get("image", ""))
-        video_list.append(v)
+    for v in Videos.objects.filter(status="active").select_related("course", "user"):
+        sec = getattr(v, "duration_seconds", 0) or 0
+        v_dict = {
+            "id": v.id,
+            "video_id": v.video_id,
+            "title": v.title,
+            "description": v.description,
+            "video": v.video,
+            "image": v.image,
+            "duration_seconds": sec,
+            "duration": f"{sec // 60}:{sec % 60:02d}" if sec > 0 else "—",
+            "like": v.like,
+            "share": v.share,
+            "views": v.views,
+            "course": v.course.course_id if v.course else None,
+            "course_name": v.course.name if v.course else "",
+            "instructor": v.user.name if v.user and v.user.name else "Sadhu Ashok Kumar",
+            "created_at": v.created_at.isoformat() if v.created_at else None,
+            "video_url": get_st_video_url(v.video),
+            "image_url": get_st_image_url(v.image),
+        }
+        video_list.append(v_dict)
     data.update({"videos": video_list})
     return JsonResponse(data, safe=False)
 
@@ -368,6 +386,60 @@ class VideosViewSet(viewsets.ModelViewSet):
         if course_id:
             qs = qs.filter(course__course_id=course_id)
         return qs
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        from django.db.models import F
+        Videos.objects.filter(pk=instance.pk).update(views=F("views") + 1)
+        instance.refresh_from_db(fields=["views"])
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post"], permission_classes=[AllowAny])
+    def view(self, request, video_id=None):
+        instance = self.get_object()
+        from django.db.models import F
+        Videos.objects.filter(pk=instance.pk).update(views=F("views") + 1)
+        instance.refresh_from_db(fields=["views"])
+        return Response({"status": "success", "views": instance.views})
+
+    @action(detail=True, methods=["post"], permission_classes=[AllowAny])
+    def like(self, request, video_id=None):
+        instance = self.get_object()
+        liked = request.data.get("liked", True)
+        from django.db.models import F
+        if liked:
+            Videos.objects.filter(pk=instance.pk).update(like=F("like") + 1)
+        else:
+            if instance.like > 0:
+                Videos.objects.filter(pk=instance.pk).update(like=F("like") - 1)
+        instance.refresh_from_db(fields=["like"])
+        return Response({"status": "success", "like": instance.like, "liked": liked})
+
+    @action(detail=True, methods=["post"], permission_classes=[AllowAny])
+    def share(self, request, video_id=None):
+        instance = self.get_object()
+        from django.db.models import F
+        Videos.objects.filter(pk=instance.pk).update(share=F("share") + 1)
+        instance.refresh_from_db(fields=["share"])
+        return Response({"status": "success", "share": instance.share})
+
+    @action(detail=True, methods=["post"], permission_classes=[AllowAny], url_path="duration")
+    def update_duration(self, request, video_id=None):
+        instance = self.get_object()
+        duration_sec = request.data.get("duration_seconds")
+        try:
+            sec = int(duration_sec)
+            if sec > 0 and (instance.duration_seconds == 0 or instance.duration_seconds != sec):
+                Videos.objects.filter(pk=instance.pk).update(duration_seconds=sec)
+                instance.duration_seconds = sec
+        except (ValueError, TypeError):
+            pass
+        return Response({
+            "status": True,
+            "duration_seconds": instance.duration_seconds,
+            "duration": f"{instance.duration_seconds // 60}:{instance.duration_seconds % 60:02d}"
+        })
 
     def perform_create(self, serializer):
         user = None
@@ -583,6 +655,57 @@ class DiscussionsViewSet(viewsets.ModelViewSet):
         disc_id = f"disc_{uuid.uuid4().hex[:10]}"
         serializer.save(discussion_id=disc_id, user=user)
 
+    @action(detail=True, methods=["post"])
+    def reply(self, request, discussion_id=None):
+        discussion = self.get_object()
+        user_id = request.data.get("user_id")
+        content = (request.data.get("content") or "").strip()
+        if not content:
+            return Response({"error": "Content is required"}, status=status.HTTP_400_BAD_REQUEST)
+        user = None
+        if user_id:
+            user = AllUsers.objects.filter(user_id=user_id).first() or AllUsers.objects.filter(username=user_id).first()
+        if not user and request.user and request.user.is_authenticated:
+            user = AllUsers.objects.filter(username=request.user.username).first() or AllUsers.objects.filter(email=request.user.email).first()
+        if not user:
+            user = AllUsers.objects.first()
+        reply_id = f"rep_{uuid.uuid4().hex[:10]}"
+        DiscussionReplies.objects.create(
+            reply_id=reply_id,
+            discussion=discussion,
+            user=user,
+            content=content,
+        )
+        discussion.comments_count = discussion.replies.filter(status="active").count()
+        discussion.save(update_fields=["comments_count"])
+        return Response({"status": "success", "reply_id": reply_id, "comments_count": discussion.comments_count})
+
+    @action(detail=True, methods=["post"])
+    def like(self, request, discussion_id=None):
+        discussion = self.get_object()
+        user_id = request.data.get("user_id")
+        user = None
+        if user_id:
+            user = AllUsers.objects.filter(user_id=user_id).first() or AllUsers.objects.filter(username=user_id).first()
+        if not user and request.user and request.user.is_authenticated:
+            user = AllUsers.objects.filter(username=request.user.username).first() or AllUsers.objects.filter(email=request.user.email).first()
+        if not user:
+            user = AllUsers.objects.first()
+        existing = DiscussionLikes.objects.filter(discussion=discussion, user=user).first()
+        if existing:
+            existing.delete()
+            liked = False
+        else:
+            DiscussionLikes.objects.create(
+                like_id=f"like_{uuid.uuid4().hex[:10]}",
+                discussion=discussion,
+                user=user,
+            )
+            liked = True
+        discussion.likes_count = discussion.likes.count()
+        discussion.save(update_fields=["likes_count"])
+        return Response({"status": "success", "liked": liked, "likes_count": discussion.likes_count})
+
 
 class BadgesViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Badges.objects.filter(status="active")
@@ -696,6 +819,10 @@ class DailyActivityViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user_id = self.request.query_params.get("user_id")
+        if not user_id and hasattr(self.request, "user") and self.request.user.is_authenticated:
+            user = AllUsers.objects.filter(email=self.request.user.email).first()
+            if user:
+                user_id = user.user_id
         if user_id:
             return DailyActivity.objects.filter(user_id=user_id).order_by("-date")
         return DailyActivity.objects.none()
@@ -970,6 +1097,81 @@ def execute_compiler_code(request):
                 code,
             )
 
+    # 1. Native execution tier (Local Sandbox Worker)
+    # Fast, isolated, zero-latency execution for interpreted and locally-supported languages.
+    if language_key in {"python", "py", "python3", "javascript", "js", "node", "nodejs", "typescript", "ts", "php", "sql"}:
+        try:
+            from .execution.worker import execute_code_job
+            local_res = execute_code_job(language=language_key, code=code, stdin=stdin)
+            if local_res and local_res.get("status") not in {"failed", "compile_error"}:
+                local_out = "".join([
+                    str(local_res.get("stdout") or ""),
+                    str(local_res.get("stderr") or "")
+                ]).strip()
+                is_success = local_res.get("status") == "completed" and local_res.get("exit_code", 0) == 0
+                return Response({
+                    "success": is_success,
+                    "output": local_out or ("Program completed with no output." if is_success else "Execution failed."),
+                    "runtime": f"Native {language.title()} Engine"
+                })
+        except Exception:
+            pass  # Fall through to cloud compiler tiers
+
+    # 2. Judge0 CE Cloud Compiler Tier (High-performance multi-language execution)
+    JUDGE0_LANG_MAP = {
+        "c": 103,
+        "cpp": 105,
+        "c++": 105,
+        "cpp20": 105,
+        "c++20": 105,
+        "cxx": 105,
+        "java": 91,
+        "java17": 91,
+        "python": 100,
+        "python3": 100,
+        "py": 100,
+        "javascript": 102,
+        "js": 102,
+        "node": 102,
+        "nodejs": 102,
+        "typescript": 101,
+        "ts": 101,
+        "csharp": 51,
+        "c#": 51,
+        "php": 98,
+        "go": 107,
+        "rust": 108,
+        "kotlin": 111,
+        "ruby": 72,
+        "sql": 82,
+    }
+    lang_id = JUDGE0_LANG_MAP.get(language_key)
+    if lang_id:
+        try:
+            j_resp = requests.post(
+                "https://ce.judge0.com/submissions?wait=true",
+                json={"language_id": lang_id, "source_code": code, "stdin": stdin},
+                timeout=(4, 15),
+            )
+            if j_resp.status_code in (200, 201):
+                jdata = j_resp.json()
+                jout = "".join([
+                    str(jdata.get("stdout") or ""),
+                    str(jdata.get("stderr") or ""),
+                    str(jdata.get("compile_output") or ""),
+                    str(jdata.get("message") or "")
+                ]).strip()
+                status_id = jdata.get("status", {}).get("id")
+                is_success = (status_id == 3)
+                return Response({
+                    "success": is_success,
+                    "output": jout or ("Program completed with no output." if is_success else "Execution failed."),
+                    "runtime": f"Cloud Compiler ({language.upper()})"
+                })
+        except Exception:
+            pass  # Fall through to Wandbox
+
+    # 3. Wandbox Isolated Compiler Sandbox Tier
     try:
         runtimes_response = requests.get("https://wandbox.org/api/list.json", timeout=(4, 8))
         runtimes_response.raise_for_status()
@@ -1017,6 +1219,23 @@ def execute_compiler_code(request):
             ):
                 break
     except requests.RequestException:
+        # Final fallback to local sandbox worker if cloud services are unreachable
+        try:
+            from .execution.worker import execute_code_job
+            local_res = execute_code_job(language=language_key, code=code, stdin=stdin)
+            if local_res:
+                local_out = "".join([
+                    str(local_res.get("stdout") or ""),
+                    str(local_res.get("stderr") or "")
+                ]).strip()
+                is_success = local_res.get("status") == "completed" and local_res.get("exit_code", 0) == 0
+                return Response({
+                    "success": is_success,
+                    "output": local_out or ("Program completed with no output." if is_success else "Execution failed."),
+                    "runtime": f"Local Fallback ({language.title()})"
+                })
+        except Exception:
+            pass
         return Response({"detail": "The code execution service is unavailable. Please try again shortly."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
     except (ValueError, KeyError, TypeError):
         return Response({"detail": "The code execution service returned an invalid response."}, status=status.HTTP_502_BAD_GATEWAY)
@@ -1178,6 +1397,26 @@ def user_progress(request):
         return Response({"status": False, "message": "User not found"}, status=status.HTTP_404_NOT_FOUND)
 
     profile_obj = UserProfile.objects.filter(user=user).first()
+    if not profile_obj:
+        profile_obj = UserProfile.objects.create(user=user, role="Student")
+
+    # Dynamically compute streak from DailyActivity records
+    from datetime import timedelta
+    today = timezone.now().date()
+    yesterday = today - timedelta(days=1)
+    act_dates = set(DailyActivity.objects.filter(user=user).values_list("date", flat=True))
+    calculated_streak = 0
+    check_date = today if today in act_dates else (yesterday if yesterday in act_dates else None)
+    if check_date:
+        while check_date in act_dates:
+            calculated_streak += 1
+            check_date -= timedelta(days=1)
+
+    effective_streak = max(calculated_streak, profile_obj.current_streak)
+    if calculated_streak > profile_obj.current_streak:
+        profile_obj.current_streak = calculated_streak
+        profile_obj.save(update_fields=["current_streak"])
+
     badges_qs = UserBadges.objects.filter(user=user).select_related("badge")
     solved_count = UserProblemStatus.objects.filter(user=user, solved=True).count()
     quizzes_count = QuizAttempts.objects.filter(user=user, passed=True).count()
@@ -1187,8 +1426,8 @@ def user_progress(request):
         "status": True,
         "user_id": user.user_id,
         "name": user.name,
-        "xp": profile_obj.total_xp if profile_obj else 0,
-        "streak": profile_obj.current_streak if profile_obj else 0,
+        "xp": profile_obj.total_xp,
+        "streak": effective_streak,
         "problems_solved": solved_count,
         "quizzes_passed": quizzes_count,
         "courses_enrolled": enrollments_count,
