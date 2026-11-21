@@ -70,5 +70,6 @@ urlpatterns = [
     path('add_comment', views.add_comment, name="add_comment"),
     path('edit_comment', views.edit_comment, name="edit_comment"),
     path('delete_comment', views.delete_comment, name="delete_comment"),
+    path('like_comment', views.like_comment, name="like_comment"),
 
 ]

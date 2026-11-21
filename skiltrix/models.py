@@ -195,6 +195,7 @@ class Videos(models.Model):
         related_name="courses_videos_user_id"
     )
     video_id =  models.CharField(max_length=50, unique=True)
+    duration_seconds = models.IntegerField(default=0)
     status = models.CharField(max_length=20, default="active")
     created_at = models.DateTimeField(auto_now_add=True)
 

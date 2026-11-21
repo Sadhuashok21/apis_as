@@ -45,7 +45,6 @@ DEBUG = os.getenv("DEBUG", "True").lower() in ("true", "1", "yes")
 _DEFAULT_ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
-    "testserver",
     "*",
     "asentracoresolutions.com",
     ".asentracoresolutions.com",
@@ -85,11 +84,9 @@ INSTALLED_APPS = [
     'rest_framework',
     'channels',
     'sfs',
-    'krishi',
     'skiltrix',
     'accounts',
     'cms',
-    'whatsapp',
 ]
 
 ASGI_APPLICATION = 'apis.asgi.application'
@@ -109,10 +106,16 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'apis.middleware.AdminUploadLimitMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'apis.middleware.ExceptionLoggingMiddleware',
 ]
+
+# File Upload Configuration (1 GB max for Admin Panels, 50 MB standard user limit enforced by middleware)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 1073741824      # 1 GB in bytes (1024 * 1024 * 1024)
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
+FILE_UPLOAD_MAX_MEMORY_SIZE = 26214400        # 25 MB in memory before streaming to temporary disk file
 
 _DEFAULT_ORIGINS = (
     "http://localhost:8443",
@@ -125,18 +128,11 @@ _DEFAULT_ORIGINS = (
     "http://127.0.0.1:5175",
     "http://localhost:5176",
     "http://127.0.0.1:5176",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "https://asentracoresolutions.com",
-    "https://accounts.asentracoresolutions.com",
-    "https://skiltrix.asentracoresolutions.com",
-    "https://admin.asentracoresolutions.com",
-    "https://api.asentracoresolutions.com",
-    "https://ascentracoresolutions.com",
+    "https://www.ascentracoresolutions.com",
     "https://accounts.ascentracoresolutions.com",
     "https://skiltrix.ascentracoresolutions.com",
     "https://admin.ascentracoresolutions.com",
-    "https://api.ascentracoresolutions.com",
+    "https://apis.ascentracoresolutions.com",
 )
 
 _CUSTOM_ORIGINS = tuple(
@@ -150,8 +146,6 @@ FRONTEND_ALLOWED_ORIGINS = tuple(sorted(set(_DEFAULT_ORIGINS + _CUSTOM_ORIGINS))
 CSRF_TRUSTED_ORIGINS = list(sorted(set(
     list(FRONTEND_ALLOWED_ORIGINS)
     + [
-        "https://*.asentracoresolutions.com",
-        "https://asentracoresolutions.com",
         "https://*.ascentracoresolutions.com",
         "https://ascentracoresolutions.com",
     ]
@@ -266,9 +260,6 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# CodeLab File and Payload Upload Limits (10 MB max request payload)
-DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
-FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 
 # ==============================================================================
 # CDN Asset Storage & Distribution (Cloudflare R2 + CDN)
@@ -290,15 +281,4 @@ R2_ENDPOINT_URL = os.getenv("endpoint_url", "")
 R2_ACCESS_KEY_ID = os.getenv("aws_access_key_id", "")
 R2_SECRET_ACCESS_KEY = os.getenv("aws_secret_access_key", "")
 R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME", "sfs-blueprints")
-
-# ==============================================================================
-# Meta WhatsApp Cloud API Configuration
-# ==============================================================================
-WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip("\"'")
-WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "").strip("\"'")
-WHATSAPP_BUSINESS_ACCOUNT_ID = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID", "").strip("\"'")
-WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "").strip("\"'")
-WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "").strip("\"'")
-WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "v21.0").strip("\"'")
-WHATSAPP_AI_ENABLED = os.getenv("WHATSAPP_AI_ENABLED", "false").lower() in ("true", "1", "yes")
 

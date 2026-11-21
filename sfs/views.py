@@ -61,60 +61,98 @@ def get_user_object(user_id_input):
 
 
 def like(request):
-    bp_id = request.GET.get('bp_id', '')
-    user_id = request.GET.get('user_id', '')
+    bp_id = request.GET.get('bp_id', '').strip()
+    user_id = request.GET.get('user_id', '').strip()
 
-    if bp_id and user_id:
-        user_obj = get_user_object(user_id)
-        effective_user_id = user_obj.user_id if user_obj else user_id
+    if not bp_id:
+        return JsonResponse({"status": False, "message": "Missing blueprint id."}, safe=False)
 
-        blueprint = BP.objects.filter(bp_id=bp_id).first()
+    # Resolve blueprint by exact bp_id or SEO compound slug
+    blueprint = BP.objects.filter(bp_id=bp_id).first()
+    if not blueprint and '-' in bp_id:
+        candidate_id = bp_id.rsplit('-', 1)[-1]
+        blueprint = BP.objects.filter(bp_id=candidate_id).first()
+        if blueprint:
+            bp_id = blueprint.bp_id
+    if not blueprint:
+        blueprint = BP.objects.filter(name__iexact=bp_id).first()
+        if blueprint:
+            bp_id = blueprint.bp_id
 
-        if blueprint is None:
-            return JsonResponse({"status": False, "message": "Blueprint not found."}, safe=False)
+    if blueprint is None:
+        return JsonResponse({"status": False, "message": "Blueprint not found."}, safe=False)
 
-        favorite = BpDlv.objects.filter(
-            Q(user_id=effective_user_id) | Q(user_id=user_id),
-            bp_pla_id=bp_id,
-            type="like"
-        ).first()
+    client_ip = get_client_ip(request)
+    utm_source = request.GET.get('utm_source', '') or ''
+    user_obj = get_user_object(user_id) if user_id else None
+    effective_user_id = user_obj.user_id if user_obj else None
+    clean_ip = client_ip.replace('.', '_').replace(':', '_') if client_ip else "guest"
+    anon_user_id = f"anon_{clean_ip}"
 
-        if favorite:
-            favorite.delete()
+    # Determine if already liked
+    favorite_filter = Q(bp_pla_id=bp_id, type="like")
+    if effective_user_id:
+        favorite_filter &= (Q(user_id=effective_user_id) | Q(user_id=user_id))
+    else:
+        favorite_filter &= (Q(user_id=anon_user_id) | Q(ip=client_ip, user_id__startswith="anon_"))
 
-            if blueprint.flikes > 0:
-                blueprint.flikes -= 1
-            if blueprint.likes > 0:
-                blueprint.likes -= 1
-            blueprint.save()
+    existing_dlv = BpDlv.objects.filter(favorite_filter).first()
 
+    if existing_dlv:
+        # Unlike
+        existing_dlv.delete()
+        if user_obj:
             Favorites.objects.filter(
-                Q(user_id=effective_user_id) | Q(user_id=user_id),
+                Q(user_id=user_obj.user_id) | Q(user_id=user_id),
                 bp_id=bp_id
             ).delete()
 
-            return JsonResponse({"status": True, "message": "Unliked successfully.", "liked": False}, safe=False)
-        else:
-            Favorites.objects.create(user_id=effective_user_id, bp_id=bp_id, status="approved", time=timezone.now())
-            BpDlv.objects.create(
-                ip = get_client_ip(request),
-                platform_name = "app",
-                platform = "sfs",
-                version = "2.100",
-                type="like",
-                download_type = "null",
-                bp_pla_id=bp_id,
-                user_id=effective_user_id,
-                dlv_id = unique_id(),
-                time=timezone.now(),
-            )
-            blueprint.flikes += 1
-            blueprint.likes += 1
-            blueprint.save()
+        if blueprint.flikes > 0:
+            blueprint.flikes -= 1
+        if blueprint.likes > 0:
+            blueprint.likes -= 1
+        blueprint.save()
 
-            return JsonResponse({"status": True, "message": "Liked successfully.", "liked": True}, safe=False)
+        return JsonResponse({
+            "status": True,
+            "message": "Unliked successfully.",
+            "liked": False,
+            "flikes": blueprint.flikes
+        }, safe=False)
     else:
-        return JsonResponse({"status": False, "message": "Missing user id or blueprint id."}, safe=False)
+        # Like
+        if user_obj:
+            Favorites.objects.get_or_create(
+                user_id=user_obj.user_id,
+                bp_id=bp_id,
+                defaults={"status": "approved", "time": timezone.now()}
+            )
+
+        tracking_user = effective_user_id or anon_user_id
+        BpDlv.objects.create(
+            ip=client_ip,
+            platform_name="app",
+            platform="sfs",
+            version="2.100",
+            type="like",
+            download_type="null",
+            bp_pla_id=bp_id,
+            user_id=tracking_user,
+            dlv_id=unique_id(),
+            time=timezone.now(),
+            utm_source=utm_source,
+        )
+
+        blueprint.flikes += 1
+        blueprint.likes += 1
+        blueprint.save()
+
+        return JsonResponse({
+            "status": True,
+            "message": "Liked successfully.",
+            "liked": True,
+            "flikes": blueprint.flikes
+        }, safe=False)
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -361,25 +399,43 @@ def favorites_2_1(request):
 
 
 def check_like(request):
-    bp_id = request.GET.get('bp_id', '')
-    user_id = request.GET.get('user_id', '')
+    bp_id = request.GET.get('bp_id', '').strip()
+    user_id = request.GET.get('user_id', '').strip()
 
-    if bp_id and user_id:
-        user_obj = get_user_object(user_id)
-        effective_user_id = user_obj.user_id if user_obj else user_id
+    if not bp_id:
+        return JsonResponse({"status": False, "message": "Missing blueprint id."}, safe=False)
 
-        favorite = BpDlv.objects.filter(
-            Q(user_id=effective_user_id) | Q(user_id=user_id),
-            bp_pla_id=bp_id,
-            type="like"
-        ).first()
+    if '-' in bp_id and not BP.objects.filter(bp_id=bp_id).exists():
+        candidate_id = bp_id.rsplit('-', 1)[-1]
+        if BP.objects.filter(bp_id=candidate_id).exists():
+            bp_id = candidate_id
 
-        if favorite:
-            return JsonResponse({"status": True, "liked": True}, safe=False)
-        else:
-            return JsonResponse({"status": True, "liked": False}, safe=False)
+    client_ip = get_client_ip(request)
+    user_obj = get_user_object(user_id) if user_id else None
+    effective_user_id = user_obj.user_id if user_obj else None
+    clean_ip = client_ip.replace('.', '_').replace(':', '_') if client_ip else "guest"
+    anon_user_id = f"anon_{clean_ip}"
+
+    favorite_filter = Q(bp_pla_id=bp_id, type="like")
+    if effective_user_id:
+        favorite_filter &= (Q(user_id=effective_user_id) | Q(user_id=user_id))
     else:
-        return JsonResponse({"status": False, "message": "Missing user id or blueprint id."}, safe=False)
+        favorite_filter &= (Q(user_id=anon_user_id) | Q(ip=client_ip, user_id__startswith="anon_"))
+
+    is_liked = BpDlv.objects.filter(favorite_filter).exists()
+    return JsonResponse({"status": True, "liked": is_liked}, safe=False)
+
+
+def like_comment(request):
+    comment_id = request.GET.get('comment_id', '').strip() or request.POST.get('comment_id', '').strip()
+    if not comment_id:
+        return JsonResponse({"status": False, "message": "Missing comment id."}, safe=False)
+
+    comment = Comments.objects.filter(id=comment_id).first()
+    if not comment:
+        return JsonResponse({"status": False, "message": "Comment not found."}, safe=False)
+
+    return JsonResponse({"status": True, "message": "Comment liked.", "liked": True}, safe=False)
 
 # 2_100 start 
 
@@ -777,24 +833,49 @@ def inner_bp(request):
     blueprint_id = request.GET.get('bp_id', '').strip()
 
     if blueprint_id:
+        # 1. Direct match on bp_id
         blueprint = BP.objects.filter(bp_id=blueprint_id).first()
+
+        # 2. Extract candidate bp_id if compound SEO slug (e.g., 'mars-rover-with-rocket-E3VH5X3U1CMB39DRLAQR')
+        if not blueprint and '-' in blueprint_id:
+            candidate = blueprint_id.rsplit('-', 1)[-1].strip()
+            if candidate:
+                blueprint = BP.objects.filter(bp_id=candidate).first()
+
+        if not blueprint and '_' in blueprint_id:
+            candidate = blueprint_id.rsplit('_', 1)[-1].strip()
+            if candidate:
+                blueprint = BP.objects.filter(bp_id=candidate).first()
 
         if blueprint:
             cats = []
-            for c in BPCategories.objects.filter(bp=blueprint).select_related('category'):
-                if c.category:
-                    cats.append({
-                        "name": c.category.bp_name,
-                        "cat_id": c.category.category_id,
-                    })
+            try:
+                for c in BPCategories.objects.filter(bp=blueprint).select_related('category'):
+                    if c.category:
+                        cats.append({
+                            "name": c.category.bp_name,
+                            "cat_id": c.category.category_id,
+                        })
+            except Exception:
+                pass
 
             gallery = []
             if blueprint.image:
                 gallery.append(get_sfs_image_url(blueprint.image))
-            for extra in BPImages.objects.filter(bp=blueprint):
-                url = get_sfs_image_url(extra.image)
-                if url and url not in gallery:
-                    gallery.append(url)
+            try:
+                for extra in BPImages.objects.filter(bp=blueprint):
+                    url = get_sfs_image_url(extra.image)
+                    if url and url not in gallery:
+                        gallery.append(url)
+            except Exception:
+                pass
+
+            user_name = "Spaceflight Simulator"
+            try:
+                if blueprint.user and hasattr(blueprint.user, 'name') and blueprint.user.name:
+                    user_name = blueprint.user.name
+            except Exception:
+                pass
 
             bp_dict = {
                 "bp_id": blueprint.bp_id,
@@ -816,8 +897,8 @@ def inner_bp(request):
                 "flikes": blueprint.flikes,
                 "fshare": blueprint.fshare,
                 "comments": blueprint.comments,
-                "user": blueprint.user.name if blueprint.user else "Spaceflight Simulator",
-                "user__name": blueprint.user.name if blueprint.user else "Spaceflight Simulator",
+                "user": user_name,
+                "user__name": user_name,
                 "categories": cats,
             }
 

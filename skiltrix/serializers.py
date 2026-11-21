@@ -547,15 +547,17 @@ class VideoDetailSerializer(serializers.ModelSerializer):
     comments_count = serializers.SerializerMethodField()
     course_id = serializers.CharField(write_only=True, required=False, allow_null=True, allow_blank=True)
     course_name = serializers.ReadOnlyField(source="course.name")
+    instructor = serializers.SerializerMethodField()
     video_url = serializers.SerializerMethodField()
     image_url = serializers.SerializerMethodField()
+    duration = serializers.SerializerMethodField()
 
     class Meta:
         model = Videos
         fields = [
             "video_id", "title", "description", "video", "image",
-            "video_url", "image_url",
-            "like", "share", "views", "course", "course_id", "course_name",
+            "video_url", "image_url", "duration_seconds", "duration",
+            "like", "share", "views", "course", "course_id", "course_name", "instructor",
             "subtitles", "comments", "comments_count", "created_at"
         ]
         extra_kwargs = {
@@ -563,8 +565,20 @@ class VideoDetailSerializer(serializers.ModelSerializer):
             "video": {"required": False, "allow_blank": True},
             "image": {"required": False, "allow_blank": True},
             "description": {"required": False, "allow_blank": True},
-            "course": {"required": False, "allow_null": True}
+            "course": {"required": False, "allow_null": True},
+            "duration_seconds": {"required": False}
         }
+
+    def get_duration(self, obj):
+        sec = getattr(obj, "duration_seconds", 0) or 0
+        if sec <= 0:
+            return ""
+        return f"{sec // 60}:{sec % 60:02d}"
+
+    def get_instructor(self, obj):
+        if obj.user and obj.user.name:
+            return obj.user.name
+        return "Sadhu Ashok Kumar"
 
     def get_video_url(self, obj):
         from apis.cdn_utils import get_st_video_url
@@ -581,12 +595,15 @@ class VideoDetailSerializer(serializers.ModelSerializer):
 class CourseDetailSerializer(serializers.ModelSerializer):
     modules = CourseModuleSerializer(many=True, read_only=True)
     image_url = serializers.SerializerMethodField()
+    videos = serializers.SerializerMethodField()
+    students_count = serializers.SerializerMethodField()
+    rating = serializers.SerializerMethodField()
 
     class Meta:
         model = Courses
         fields = [
             "course_id", "name", "image", "image_url", "type", "is_paid", "price",
-            "status", "created_at", "modules"
+            "status", "created_at", "modules", "videos", "students_count", "rating"
         ]
         extra_kwargs = {
             "course_id": {"required": False},
@@ -597,6 +614,83 @@ class CourseDetailSerializer(serializers.ModelSerializer):
     def get_image_url(self, obj):
         from apis.cdn_utils import get_st_image_url
         return get_st_image_url(obj.image)
+
+    def get_students_count(self, obj):
+        from .models import CourseEnrollments
+        return CourseEnrollments.objects.filter(course=obj).count()
+
+    def get_rating(self, obj):
+        from .models import Ratings
+        from django.db.models import Avg
+        avg = Ratings.objects.filter(course=obj).aggregate(Avg("rating"))["rating__avg"]
+        return round(float(avg), 1) if avg is not None else None
+
+    def get_videos(self, obj):
+        from apis.cdn_utils import get_st_video_url, get_st_image_url
+        vids = obj.courses_video_id.filter(status="active").order_by("created_at")
+        if not vids.exists():
+            vids = obj.courses_video_id.all().order_by("created_at")
+        results = []
+        for v in vids:
+            sec = getattr(v, "duration_seconds", 0) or 0
+            dur_min = max(1, round(sec / 60)) if sec > 0 else 2
+            results.append({
+                "video_id": v.video_id,
+                "title": v.title,
+                "description": v.description,
+                "video_url": get_st_video_url(v.video),
+                "image_url": get_st_image_url(v.image),
+                "duration_seconds": sec,
+                "duration": f"{sec // 60}:{sec % 60:02d}" if sec > 0 else "",
+                "duration_minutes": dur_min,
+                "like": v.like,
+                "views": v.views,
+                "created_at": v.created_at.isoformat() if hasattr(v, "created_at") and v.created_at else None
+            })
+        return results
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # If the course has no explicit CourseModules (or modules have 0 lessons),
+        # but has Videos assigned to it in st_videos, automatically synthesize a
+        # complete video curriculum module so lessons, durations, and video lectures appear!
+        existing_modules = data.get("modules") or []
+        has_lessons = any(len(m.get("lessons") or []) > 0 for m in existing_modules)
+
+        if not has_lessons:
+            course_videos = instance.courses_video_id.filter(status="active").order_by("created_at")
+            if not course_videos.exists():
+                course_videos = instance.courses_video_id.all().order_by("created_at")
+
+            if course_videos.exists():
+                from apis.cdn_utils import get_st_video_url, get_st_image_url
+                synthesized_lessons = []
+                for idx, v in enumerate(course_videos, start=1):
+                    sec = getattr(v, "duration_seconds", 0) or 0
+                    dur_min = max(1, round(sec / 60)) if sec > 0 else 2
+                    synthesized_lessons.append({
+                        "lesson_id": v.video_id,
+                        "title": v.title,
+                        "lesson_type": "video",
+                        "duration_seconds": sec,
+                        "duration_minutes": dur_min,
+                        "duration": f"{sec // 60}:{sec % 60:02d}" if sec > 0 else f"{dur_min}:00",
+                        "is_free_preview": not instance.is_paid or idx == 1,
+                        "order": idx,
+                        "video_url": get_st_video_url(v.video),
+                        "image_url": get_st_image_url(v.image),
+                        "description": v.description,
+                    })
+                data["modules"] = [
+                    {
+                        "module_id": f"mod_{instance.course_id}_videos",
+                        "title": "Course Curriculum & Video Lessons",
+                        "description": f"Video lectures and walkthroughs for {instance.name}",
+                        "order": 1,
+                        "lessons": synthesized_lessons,
+                    }
+                ]
+        return data
 
 
 class CourseEnrollmentSerializer(serializers.ModelSerializer):

@@ -39,6 +39,7 @@ router.register("assessments", views.CodingAssessmentViewSet, basename="assessme
 router.register("questions", views.AssessmentQuestionItemViewSet, basename="assessment-question")
 router.register("sections", views.AssessmentSectionViewSet, basename="assessment-section")
 router.register("blueprints", views.CompanyBlueprintViewSet, basename="blueprint")
+router.register("activity", views.DailyActivityViewSet, basename="activity")
 router.register("codelab/projects", codelab_views.CodeProjectViewSet, basename="codelab-project")
 
 urlpatterns = [

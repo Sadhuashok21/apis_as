@@ -440,7 +440,7 @@ Disallow: /compiler
 Disallow: /auth/
 Disallow: /upload
 
-Sitemap: https://ascentracoresolutions.com/sitemap.xml
+Sitemap: https://www.ascentracoresolutions.com/sitemaps.xml
 """
     return HttpResponse(content, content_type="text/plain")
 

@@ -191,7 +191,9 @@ def generate_course_page_files(
     next_json = json.dumps(next_page) if next_page else "undefined"
 
     video_block_jsx = ""
-    if video_data and video_data.get("url"):
+    # Only render top video banner if explicitly requested as a hero banner;
+    # inline videos embedded in html_content render directly at their custom positions.
+    if video_data and video_data.get("url") and video_data.get("is_hero_banner"):
         v_url = video_data.get("url", "").replace('"', '\\"')
         v_thumb = video_data.get("thumbnail", "").replace('"', '\\"')
         v_title = video_data.get("title", "Lecture Video").replace('"', '\\"')

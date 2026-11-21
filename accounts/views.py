@@ -125,6 +125,7 @@ def verify_account_password(user, raw_password):
 # ============================================================================
 
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def accounts_signup(request):
     """
@@ -195,6 +196,7 @@ def accounts_signup(request):
 
 
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def accounts_login(request):
     """
@@ -217,9 +219,15 @@ def accounts_login(request):
     if client_id:
         client_app = ClientApplication.objects.filter(client_id=client_id, is_enabled=True).first()
 
-    user = User.objects.filter(Q(email__iexact=ident) | Q(username__iexact=ident)).first()
+    # Search all matching candidates by email or username
+    candidates = list(User.objects.filter(Q(email__iexact=ident) | Q(username__iexact=ident)))
+    user = None
+    for candidate in candidates:
+        if verify_account_password(candidate, raw_password):
+            user = candidate
+            break
 
-    if not user or not verify_account_password(user, raw_password):
+    if not user:
         log_audit_event(
             request, "LOGIN_FAILED",
             client_app=client_app,
@@ -382,6 +390,7 @@ def accounts_change_password(request):
 
 
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def accounts_password_reset_request(request):
     """
@@ -394,6 +403,9 @@ def accounts_password_reset_request(request):
     email = serializer.validated_data["email"].strip().lower()
     user = User.objects.filter(email__iexact=email).first()
 
+    dev_otp = None
+    email_delivered = False
+
     if user:
         otp_code = generate_otp_code(6)
         token_str = generate_secure_token(48)
@@ -405,9 +417,15 @@ def accounts_password_reset_request(request):
             expires_at=timezone.now() + timedelta(minutes=15),
         )
 
+        # Log OTP prominently in server console so local development/debugging is never blocked
+        print("=" * 60)
+        print(f"[OTP CODE] Password reset OTP for {user.email}: {otp_code}")
+        print("=" * 60)
+
         try:
             subject = f"Your Password Reset OTP: {otp_code} - Ascentracore Solutions"
-            from_email = getattr(settings, "EMAIL_HOST_USER", "noreply") + "@ascentracoresolutions.com"
+            from_user = getattr(settings, "EMAIL_HOST_USER", "noreply") or "noreply"
+            from_email = from_user if "@" in from_user else f"{from_user}@ascentracoresolutions.com"
             html_content = f"""
             <!DOCTYPE html>
             <html>
@@ -451,21 +469,35 @@ def accounts_password_reset_request(request):
             from django.core.mail import EmailMultiAlternatives
             msg = EmailMultiAlternatives(subject, text_content, from_email, [user.email])
             msg.attach_alternative(html_content, "text/html")
-            msg.send(fail_silently=True)
+            sent = msg.send(fail_silently=False)
+            if sent:
+                email_delivered = True
         except Exception as e:
-            print("Password reset email error:", e)
+            print(f"[EMAIL SEND ERROR] Failed to send password reset email to {user.email}: {e}")
 
         log_audit_event(request, "PASSWORD_RESET_OTP_SENT", user=user)
 
+        # On localhost or development environment, provide dev_otp so local testing is never blocked
+        host = request.get_host().split(":")[0].lower()
+        if getattr(settings, "DEBUG", False) or host in ("localhost", "127.0.0.1", "testserver"):
+            dev_otp = otp_code
+
     # Return success message and confirmation
-    return Response({
+    response_payload = {
         "status": True,
         "message": "If an account exists with that email, a 6-digit OTP code has been sent.",
         "email": email,
-    })
+    }
+    if dev_otp:
+        response_payload["dev_otp"] = dev_otp
+        if not email_delivered:
+            response_payload["warning"] = "SMTP mail delivery failed. Using local dev OTP."
+
+    return Response(response_payload)
 
 
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def accounts_password_verify_otp(request):
     """
@@ -488,6 +520,7 @@ def accounts_password_verify_otp(request):
 
 
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def accounts_password_reset_confirm(request):
     """
@@ -522,17 +555,25 @@ def accounts_password_reset_confirm(request):
             "message": "Invalid or expired OTP code. Please request a new code."
         }, status=status.HTTP_400_BAD_REQUEST)
 
-    user = reset_obj.user
-    user.set_password(new_password)
-    user.save()
+    # Sync password across matching user records
+    matching_users = list(User.objects.filter(email__iexact=email)) if email else [reset_obj.user]
+    if matching_users:
+        for u in matching_users:
+            u.set_password(new_password)
+            u.save()
+    else:
+        user = reset_obj.user
+        user.set_password(new_password)
+        user.save()
 
     reset_obj.is_used = True
     reset_obj.save()
 
     # Invalidate all existing sessions
-    UserSession.objects.filter(user=user).update(is_revoked=True, revoked_at=timezone.now())
+    for u in matching_users:
+        UserSession.objects.filter(user=u).update(is_revoked=True, revoked_at=timezone.now())
 
-    log_audit_event(request, "PASSWORD_RESET_COMPLETED", user=user)
+    log_audit_event(request, "PASSWORD_RESET_COMPLETED", user=reset_obj.user)
 
     return Response({"status": True, "message": "Password has been successfully changed. Please log in with your new password."})
 
@@ -684,7 +725,17 @@ def oauth_authorize(request):
             "message": "The provided redirect_uri is not authorized for this application."
         }, status=status.HTTP_400_BAD_REQUEST)
 
-    # 3. User must be authenticated to authorize
+    # 3. User must be authenticated to authorize (via Bearer token or session)
+    if (not request.user or not request.user.is_authenticated) and hasattr(request, "session"):
+        session_uid = request.session.get("_auth_user_id")
+        if session_uid:
+            try:
+                s_user = User.objects.get(pk=session_uid)
+                if s_user.is_authenticated:
+                    request.user = s_user
+            except User.DoesNotExist:
+                pass
+
     if not request.user or not request.user.is_authenticated:
         return Response({
             "status": False,
@@ -895,6 +946,7 @@ def openid_configuration(request):
 
 
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def accounts_google_auth(request):
     """
@@ -1047,6 +1099,7 @@ def accounts_google_auth(request):
     })
 
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def accounts_github_auth(request):
     """

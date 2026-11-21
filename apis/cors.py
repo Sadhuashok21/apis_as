@@ -22,7 +22,6 @@ class FrontendCorsMiddleware:
                 or origin.startswith("http://192.168.")
                 or origin.startswith("http://10.")
                 or origin.startswith("http://172.")
-                or origin.startswith("https://localhost:")
             ):
                 is_allowed = True
             else:
@@ -31,9 +30,7 @@ class FrontendCorsMiddleware:
                     if parsed.scheme == "https":
                         hostname = parsed.hostname or ""
                         if (
-                            hostname == "asentracoresolutions.com"
-                            or hostname.endswith(".asentracoresolutions.com")
-                            or hostname == "ascentracoresolutions.com"
+                            hostname == "ascentracoresolutions.com"
                             or hostname.endswith(".ascentracoresolutions.com")
                         ):
                             is_allowed = True
@@ -48,7 +45,7 @@ class FrontendCorsMiddleware:
         if is_allowed and origin:
             response["Access-Control-Allow-Origin"] = origin
             response["Access-Control-Allow-Methods"] = "GET, POST, PATCH, PUT, DELETE, OPTIONS"
-            response["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, X-CSRFToken, X-Requested-With, Idempotency-Key, X-User-Id"
+            response["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, X-CSRFToken, X-Requested-With, Idempotency-Key, X-User-Id, X-Admin-Portal"
             response["Access-Control-Allow-Credentials"] = "true"
             response["Vary"] = "Origin"
         return response
