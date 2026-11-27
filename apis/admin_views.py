@@ -131,11 +131,35 @@ def admin_users(request, user_id=None):
         try:
             search = request.GET.get("search", "").strip()
             status = request.GET.get("status", "").strip()
+            app_filter = (request.GET.get("app") or request.GET.get("platform") or "").strip().lower()
             page = int(request.GET.get("page", 1))
             limit = int(request.GET.get("limit", 20))
             offset = (page - 1) * limit
 
             queryset = AllUsers.objects.all().order_by('-id')
+
+            if app_filter == "skiltrix":
+                queryset = queryset.filter(
+                    Q(platform_name__in=[
+                        "skiltrix",
+                        "skiltrix_web",
+                        "skiltrix_firebase",
+                        "google_oauth",
+                        "github_oauth",
+                        "ascentracore",
+                    ])
+                    | Q(accounts_sessions__client_app__client_id="skiltrix")
+                    | Q(skiltrix_profile__isnull=False)
+                    | Q(course_enrollments__isnull=False)
+                    | Q(assessment_attempts__isnull=False)
+                    | Q(coding_submissions__isnull=False)
+                ).distinct()
+            elif app_filter == "sfs":
+                queryset = queryset.filter(
+                    Q(platform_name__iexact="sfs_blueprints")
+                    | Q(platform_name__iexact="app")
+                    | Q(platform_name__iexact="firebase_sync")
+                ).distinct()
 
             if search:
                 queryset = queryset.filter(
@@ -152,10 +176,32 @@ def admin_users(request, user_id=None):
                     queryset = queryset.filter(status=status)
 
             total_count = queryset.count()
-            users_page = queryset[offset:offset + limit]
+            users_page = list(queryset[offset:offset + limit])
+
+            page_user_ids = [u.user_id for u in users_page if u.user_id]
+            completed_map = {}
+            enrolled_map = {}
+            if page_user_ids:
+                try:
+                    from skiltrix.models import CourseEnrollments
+                    for row in (
+                        CourseEnrollments.objects.filter(user_id__in=page_user_ids)
+                        .values("user_id")
+                        .annotate(
+                            total=Count("id"),
+                            completed=Count("id", filter=Q(is_completed=True)),
+                        )
+                    ):
+                        enrolled_map[row["user_id"]] = row["total"]
+                        completed_map[row["user_id"]] = row["completed"]
+                except Exception:
+                    pass
 
             users_list = []
             for u in users_page:
+                display_platform_name = u.platform_name or "Browser"
+                if app_filter == "skiltrix" and (u.platform_name or "").lower() in ("", "sfs_blueprints", "app", "firebase_sync"):
+                    display_platform_name = "skiltrix"
                 users_list.append({
                     "id": u.id,
                     "user_id": u.user_id,
@@ -165,7 +211,9 @@ def admin_users(request, user_id=None):
                     "status": u.status or "approved",
                     "type": u.user_type or "Member",
                     "platform": u.platform or "Web",
-                    "platform_name": u.platform_name or "Browser",
+                    "platform_name": display_platform_name,
+                    "completed_courses": completed_map.get(u.user_id, 0),
+                    "enrolled_courses": enrolled_map.get(u.user_id, 0),
                     "created_at": u.created_at.strftime('%Y-%m-%d') if u.created_at else ""
                 })
 

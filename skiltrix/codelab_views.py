@@ -64,6 +64,11 @@ def get_current_user_or_guest(request):
     return AllUsers.objects.first()
 
 
+def _is_locked_project_path(project: CodeProject, safe_path: str) -> bool:
+    locked = (project.execution_settings or {}).get("locked_paths") or []
+    return safe_path in set(locked)
+
+
 def get_owned_project(request, project_id):
     """Load a project only inside the current account's authorization scope or public."""
     user = get_current_user_or_guest(request)
@@ -338,6 +343,12 @@ class ProjectFileViewSet(viewsets.ViewSet):
         except ValueError as err:
             return Response({"detail": str(err)}, status=status.HTTP_400_BAD_REQUEST)
 
+        if _is_locked_project_path(project, safe_path):
+            return Response(
+                {"detail": "This assessment file is locked (read-only) and cannot be modified."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         name = os.path.basename(safe_path)
         content_bytes = len(content.encode("utf-8"))
 
@@ -472,6 +483,12 @@ class ProjectFileViewSet(viewsets.ViewSet):
         except ValueError as err:
             return Response({"detail": str(err)}, status=status.HTTP_400_BAD_REQUEST)
 
+        if _is_locked_project_path(project, safe_path):
+            return Response(
+                {"detail": "This assessment file is locked and cannot be deleted."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         # Delete matching file and child files if directory
         project.files.filter(path=safe_path).delete()
         project.files.filter(path__startswith=f"{safe_path}/").delete()
@@ -508,6 +525,12 @@ class ProjectFileViewSet(viewsets.ViewSet):
 
         if safe_old == safe_new:
             return Response({"status": True, "message": "Paths are identical."})
+
+        if _is_locked_project_path(project, safe_old) or _is_locked_project_path(project, safe_new):
+            return Response(
+                {"detail": "Locked assessment files cannot be renamed or overwritten."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         if project.files.filter(path=safe_new).exists():
             return Response({"detail": f"Target path '{safe_new}' already exists."}, status=status.HTTP_400_BAD_REQUEST)

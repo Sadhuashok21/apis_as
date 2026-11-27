@@ -2,6 +2,7 @@ import json
 from django.test import TestCase
 from rest_framework.test import APIClient
 from rest_framework import status
+from sfs.models import AllUsers
 from skiltrix.models import (
     CodingProblems,
     TestCases,
@@ -147,11 +148,22 @@ class CodeLabAssessmentTestCase(TestCase):
         self.assertIn("test_results", res.data)
 
     def test_assessment_flow_start_autosave_submit(self):
-        """Test complete assessment lifecycle with scorecard generation."""
+        """Test complete assessment lifecycle with scorecard generation (requires authenticated user)."""
+        candidate = AllUsers.objects.create(
+            user_id="test_candidate_1",
+            username="test_candidate_1",
+            email="candidate1@skiltrix.com",
+            name="Candidate One",
+            platform="web",
+            platform_name="skiltrix",
+            type="student",
+        )
+        self.client.force_authenticate(user=candidate)
+
         # 1. Start assessment
         start_res = self.client.post(
             "/apps/skiltrix/api/actions/start-assessment/",
-            {"user_id": "test_candidate_1", "assessment_id": self.assessment.assessment_id},
+            {"assessment_id": self.assessment.assessment_id},
             format="json",
         )
         self.assertEqual(start_res.status_code, status.HTTP_200_OK)
@@ -195,3 +207,20 @@ class CodeLabAssessmentTestCase(TestCase):
         # Verify attempt in DB is completed
         attempt = AssessmentAttempt.objects.get(attempt_id=attempt_id)
         self.assertEqual(attempt.status, "completed")
+
+    def test_unauthenticated_posts_require_login_and_never_create_guest_user(self):
+        """Unauthenticated POST requests must be rejected and never create guest@skiltrix.org."""
+        self.client.force_authenticate(user=None)
+        for endpoint, payload in [
+            ("/apps/skiltrix/api/actions/start-assessment/", {"user_id": "guest", "assessment_id": self.assessment.assessment_id}),
+            ("/apps/skiltrix/api/actions/submit-code/", {"user_id": "guest", "problem_id": self.dsa_prob.problem_id, "code": "print(6)"}),
+            ("/apps/skiltrix/api/discussions/", {"user_id": "guest_learner", "title": "Hi", "content": "Test post"}),
+            ("/apps/skiltrix/api/comments/", {"video_id": "v1", "comment": "Hello"}),
+            ("/apps/skiltrix/api/actions/quiz-attempt/", {"user_id": "guest", "quiz_id": "q1"}),
+        ]:
+            res = self.client.post(endpoint, payload, format="json")
+            self.assertIn(res.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN), msg=endpoint)
+
+        self.assertFalse(AllUsers.objects.filter(user_id="guest").exists())
+        self.assertFalse(AllUsers.objects.filter(email="guest@skiltrix.org").exists())
+        self.assertFalse(AllUsers.objects.filter(name="Assessment Candidate").exists())

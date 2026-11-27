@@ -48,6 +48,7 @@ from .tokens import (
     generate_otp_code,
     verify_pkce_challenge,
     issue_sso_access_token,
+    verify_skiltrix_firebase_id_token,
 )
 from .authentication import GlobalAccountsAuthentication
 
@@ -149,6 +150,18 @@ def accounts_signup(request):
     phone_number = data.get("phone_number", "")
     password = data["password"]
 
+    client_id = data.get("client_id", "").strip()
+    client_app = None
+    if client_id:
+        client_app = ClientApplication.objects.filter(client_id=client_id, is_enabled=True).first()
+
+    explicit_platform = "platform_name" in request.data and bool(str(request.data.get("platform_name") or "").strip())
+    resolved_platform_name = (
+        data.get("platform_name")
+        if explicit_platform
+        else ("skiltrix" if client_id == "skiltrix" else data.get("platform_name", "ascentracore"))
+    )
+
     user_id = f"USR_{uuid.uuid4().hex[:12].upper()}"
 
     user = User(
@@ -158,7 +171,7 @@ def accounts_signup(request):
         name=name,
         lastname=lastname,
         platform=data.get("platform", "web"),
-        platform_name=data.get("platform_name", "ascentracore"),
+        platform_name=resolved_platform_name,
         type=data.get("type", "user"),
         status="approved",
         ip=get_client_ip(request),
@@ -175,11 +188,15 @@ def accounts_signup(request):
     # Establish central session
     session = create_user_session(
         user=user,
-        client_app=None,
+        client_app=client_app,
         ip=get_client_ip(request),
         user_agent=get_user_agent(request),
     )
-    token = issue_sso_access_token(user, client_id="central", session_id=session.session_id)
+    token = issue_sso_access_token(
+        user,
+        client_id=client_app.client_id if client_app else "central",
+        session_id=session.session_id,
+    )
 
     log_audit_event(request, "SIGNUP", user=user, details="New user account registered")
 
@@ -586,9 +603,9 @@ def accounts_password_reset_confirm(request):
 @permission_classes([IsAuthenticated])
 def accounts_list_applications(request):
     """
-    List connected applications registered in the SSO ecosystem.
+    List public connected applications registered in the SSO ecosystem.
     """
-    apps = ClientApplication.objects.filter(is_enabled=True)
+    apps = ClientApplication.objects.filter(is_enabled=True).exclude(client_id="admin")
     return Response({
         "status": True,
         "applications": ClientApplicationSerializer(apps, many=True).data
@@ -945,171 +962,16 @@ def openid_configuration(request):
     })
 
 
-@api_view(["POST"])
-@authentication_classes([])
-@permission_classes([AllowAny])
-def accounts_google_auth(request):
-    """
-    Authenticate or register a user via Google Firebase OAuth credential.
-    Supports single sign-on across all applications and optional OAuth/PKCE authorization flow.
-    """
+def _authenticate_firebase_social(request, provider_name: str, default_platform_name: str):
+    """Shared SkilTrix Firebase social auth handler for Google and GitHub logins."""
     data = request.data
+    provider_label = provider_name.capitalize()
     email = data.get("email", "").strip().lower()
     if not email:
-        return Response({"status": False, "message": "Email is required from Google authentication."}, status=status.HTTP_400_BAD_REQUEST)
-
-    name = data.get("name", "").strip()
-    lastname = data.get("lastname", "").strip()
-    profile_pic = data.get("profile", "") or data.get("photoURL", "")
-    client_id = data.get("client_id", "").strip()
-    redirect_uri = data.get("redirect_uri", "").strip()
-    code_challenge = data.get("code_challenge", "").strip()
-    code_challenge_method = data.get("code_challenge_method", "S256").strip()
-    state = data.get("state", "").strip()
-    scope = data.get("scope", "openid profile email").strip()
-
-    client_app = None
-    if client_id:
-        client_app = ClientApplication.objects.filter(client_id=client_id, is_enabled=True).first()
-
-    # Look up user by email
-    user = User.objects.filter(email__iexact=email).order_by("id").first()
-    if not user:
-        base_username = (email.split("@")[0] or "user").lower()
-        candidate = base_username
-        idx = 1
-        while User.objects.filter(username=candidate).exists():
-            candidate = f"{base_username}{idx}"
-            idx += 1
-
-        user_id = f"USR_{uuid.uuid4().hex[:12].upper()}"
-        user = User(
-            user_id=user_id,
-            username=candidate[:50],
-            email=email[:50],
-            name=(name or candidate)[:50],
-            lastname=lastname[:50],
-            profile=(profile_pic or "profile.webp")[:500],
-            platform="web",
-            platform_name="google_oauth",
-            type="user",
-            status="approved",
-            ip=get_client_ip(request)[:50],
+        return Response(
+            {"status": False, "message": f"Email is required from {provider_label} authentication."},
+            status=status.HTTP_400_BAD_REQUEST,
         )
-        user.set_unusable_password()
-        user.save()
-
-        UserProfile.objects.create(
-            user=user,
-            email_verified=True,
-        )
-        log_audit_event(request, "GOOGLE_SIGNUP", user=user, client_app=client_app, details=f"New user registered via Google: {email}")
-    else:
-        # Check account status
-        status_val = getattr(user, "status", "approved")
-        if status_val in ("suspended", "blocked", "disabled"):
-            log_audit_event(request, "GOOGLE_LOGIN_BLOCKED", user=user, client_app=client_app, status_str="WARNING")
-            return Response({
-                "status": False,
-                "message": f"This account is {status_val}. Please contact support."
-            }, status=status.HTTP_403_FORBIDDEN)
-
-        # Update avatar or name if missing
-        updated_fields = []
-        if profile_pic and not user.profile:
-            user.profile = profile_pic
-            updated_fields.append("profile")
-        if not user.name and name:
-            user.name = name
-            updated_fields.append("name")
-        if not user.lastname and lastname:
-            user.lastname = lastname
-            updated_fields.append("lastname")
-        if updated_fields:
-            user.save(update_fields=updated_fields)
-
-        # Ensure UserProfile exists & email verified
-        profile_obj, _ = UserProfile.objects.get_or_create(user=user)
-        if not profile_obj.email_verified:
-            profile_obj.email_verified = True
-            profile_obj.save(update_fields=["email_verified"])
-
-        log_audit_event(request, "GOOGLE_LOGIN", user=user, client_app=client_app, details=f"User signed in via Google: {email}")
-
-    # Create active session
-    session = create_user_session(
-        user=user,
-        client_app=client_app,
-        ip=get_client_ip(request),
-        user_agent=get_user_agent(request),
-    )
-
-    token = issue_sso_access_token(
-        user,
-        client_id=client_app.client_id if client_app else "central",
-        session_id=session.session_id,
-        scopes=["openid", "profile", "email"],
-    )
-
-    # Sync Django session if session middleware active
-    if hasattr(request, "session"):
-        django_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-
-    # If OAuth PKCE authorization parameters are provided, issue authorization code and redirect_url
-    redirect_url = None
-    code = None
-    if client_app and redirect_uri and code_challenge:
-        if not client_app.is_redirect_uri_allowed(redirect_uri):
-            return Response({
-                "status": False,
-                "error": "invalid_redirect_uri",
-                "message": f"Redirect URI '{redirect_uri}' is not authorized for application '{client_app.client_id}'."
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        code = generate_secure_token(32)
-        AuthorizationCode.objects.create(
-            code=code,
-            client_app=client_app,
-            user=user,
-            redirect_uri=redirect_uri,
-            code_challenge=code_challenge,
-            code_challenge_method=code_challenge_method or "S256",
-            scope=scope or "openid profile email",
-            expires_at=timezone.now() + timedelta(minutes=10),
-        )
-
-        params = {"code": code}
-        if state:
-            params["state"] = state
-        query_str = urlencode(params)
-        separator = "&" if "?" in redirect_uri else "?"
-        redirect_url = f"{redirect_uri}{separator}{query_str}"
-
-    return Response({
-        "status": True,
-        "message": "Google authentication successful.",
-        "user_id": user.user_id,
-        "user": UserSerializer(user).data,
-        "access_token": token,
-        "token_type": "Bearer",
-        "session_id": session.session_id,
-        "code": code,
-        "state": state,
-        "redirect_url": redirect_url,
-    })
-
-@api_view(["POST"])
-@authentication_classes([])
-@permission_classes([AllowAny])
-def accounts_github_auth(request):
-    """
-    Authenticate or register a user via GitHub OAuth credential.
-    Supports single sign-on across all applications and optional OAuth/PKCE authorization flow.
-    """
-    data = request.data
-    email = data.get("email", "").strip().lower()
-    if not email:
-        return Response({"status": False, "message": "Email is required from GitHub authentication."}, status=status.HTTP_400_BAD_REQUEST)
 
     name = data.get("name", "").strip()
     lastname = data.get("lastname", "").strip()
@@ -1121,10 +983,31 @@ def accounts_github_auth(request):
     code_challenge_method = data.get("code_challenge_method", "S256").strip()
     state = data.get("state", "").strip()
     scope = data.get("scope", "openid profile email").strip()
+    id_token = (data.get("id_token") or "").strip()
 
     client_app = None
     if client_id:
         client_app = ClientApplication.objects.filter(client_id=client_id, is_enabled=True).first()
+
+    if id_token:
+        try:
+            claims = verify_skiltrix_firebase_id_token(id_token)
+            token_email = str(claims.get("email") or "").strip().lower()
+            if (
+                token_email
+                and token_email != email
+                and not email.endswith("@github.ascentracoresolutions.com")
+            ):
+                raise ValueError("Firebase ID token email does not match request payload.")
+        except ValueError as exc:
+            log_audit_event(
+                request,
+                f"{provider_name.upper()}_FIREBASE_REJECTED",
+                client_app=client_app,
+                status_str="FAILURE",
+                details=str(exc),
+            )
+            return Response({"status": False, "message": str(exc)}, status=status.HTTP_401_UNAUTHORIZED)
 
     # Look up user by email
     user = User.objects.filter(email__iexact=email).order_by("id").first()
@@ -1145,7 +1028,7 @@ def accounts_github_auth(request):
             lastname=lastname[:50],
             profile=(profile_pic or "profile.webp")[:500],
             platform="web",
-            platform_name="github_oauth",
+            platform_name="skiltrix" if client_id == "skiltrix" else default_platform_name,
             type="user",
             status="approved",
             ip=get_client_ip(request)[:50],
@@ -1157,18 +1040,28 @@ def accounts_github_auth(request):
             user=user,
             email_verified=True,
         )
-        log_audit_event(request, "GITHUB_SIGNUP", user=user, client_app=client_app, details=f"New user registered via GitHub: {email}")
+        log_audit_event(
+            request,
+            f"{provider_name.upper()}_SIGNUP",
+            user=user,
+            client_app=client_app,
+            details=f"New user registered via {provider_label} (SkilTrix Firebase): {email}",
+        )
     else:
-        # Check account status
         status_val = getattr(user, "status", "approved")
         if status_val in ("suspended", "blocked", "disabled"):
-            log_audit_event(request, "GITHUB_LOGIN_BLOCKED", user=user, client_app=client_app, status_str="WARNING")
+            log_audit_event(
+                request,
+                f"{provider_name.upper()}_LOGIN_BLOCKED",
+                user=user,
+                client_app=client_app,
+                status_str="WARNING",
+            )
             return Response({
                 "status": False,
                 "message": f"This account is {status_val}. Please contact support."
             }, status=status.HTTP_403_FORBIDDEN)
 
-        # Update avatar or name if missing
         updated_fields = []
         if profile_pic and not user.profile:
             user.profile = profile_pic
@@ -1182,15 +1075,19 @@ def accounts_github_auth(request):
         if updated_fields:
             user.save(update_fields=updated_fields)
 
-        # Ensure UserProfile exists & email verified
         profile_obj, _ = UserProfile.objects.get_or_create(user=user)
         if not profile_obj.email_verified:
             profile_obj.email_verified = True
             profile_obj.save(update_fields=["email_verified"])
 
-        log_audit_event(request, "GITHUB_LOGIN", user=user, client_app=client_app, details=f"User signed in via GitHub: {email}")
+        log_audit_event(
+            request,
+            f"{provider_name.upper()}_LOGIN",
+            user=user,
+            client_app=client_app,
+            details=f"User signed in via {provider_label} (SkilTrix Firebase): {email}",
+        )
 
-    # Create active session
     session = create_user_session(
         user=user,
         client_app=client_app,
@@ -1205,11 +1102,9 @@ def accounts_github_auth(request):
         scopes=["openid", "profile", "email"],
     )
 
-    # Sync Django session if session middleware active
     if hasattr(request, "session"):
         django_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
-    # If OAuth PKCE authorization parameters are provided, issue authorization code and redirect_url
     redirect_url = None
     code = None
     if client_app and redirect_uri and code_challenge:
@@ -1241,7 +1136,7 @@ def accounts_github_auth(request):
 
     return Response({
         "status": True,
-        "message": "GitHub authentication successful.",
+        "message": f"{provider_label} authentication successful.",
         "user_id": user.user_id,
         "user": UserSerializer(user).data,
         "access_token": token,
@@ -1251,3 +1146,25 @@ def accounts_github_auth(request):
         "state": state,
         "redirect_url": redirect_url,
     })
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def accounts_google_auth(request):
+    """
+    Authenticate or register a user via Google Firebase OAuth credential (SkilTrix Firebase).
+    Supports single sign-on across all applications and optional OAuth/PKCE authorization flow.
+    """
+    return _authenticate_firebase_social(request, "google", "google_oauth")
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def accounts_github_auth(request):
+    """
+    Authenticate or register a user via GitHub OAuth credential (SkilTrix Firebase).
+    Supports single sign-on across all applications and optional OAuth/PKCE authorization flow.
+    """
+    return _authenticate_firebase_social(request, "github", "github_oauth")

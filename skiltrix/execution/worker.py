@@ -22,6 +22,8 @@ TEMP_EXECUTION_ROOT = Path(settings.MEDIA_ROOT) / "execution_tmp"
 TEMP_EXECUTION_ROOT.mkdir(parents=True, exist_ok=True)
 
 
+from .runtimes.c_runtime import CRuntime
+
 RUNTIME_REGISTRY = {
     "python": PythonRuntime,
     "py": PythonRuntime,
@@ -35,7 +37,7 @@ RUNTIME_REGISTRY = {
     "java": JavaRuntime,
     "cpp": CppRuntime,
     "c++": CppRuntime,
-    "c": CppRuntime,
+    "c": CRuntime,
     "php": PhpRuntime,
     "sql": SqlRuntime,
 }

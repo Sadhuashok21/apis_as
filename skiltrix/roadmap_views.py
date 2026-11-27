@@ -5,13 +5,14 @@ Reproduces exactly the 7 career roadmaps and progress management from the SkilTr
  JavaFragment, AndroidFragment, CyberSecurityFragment, RoadmapStage, ProgressManager).
 """
 
+import re
+from django.utils.text import slugify
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from django.db import transaction
-from sfs.models import AllUsers
-from .models import LearningRoadmapProgress
+from .models import LearningRoadmap, LearningRoadmapProgress
 
 
 # ==============================================================================
@@ -820,32 +821,83 @@ OFFICIAL_ROADMAPS = [
 ]
 
 
-def _resolve_user(request):
-    """Retrieve user object from authentication or headers."""
+def _resolve_authenticated_user(request):
+    """Return authenticated Django user only (no header spoofing)."""
     user = getattr(request, "user", None)
-    if user and user.is_authenticated:
+    if user and getattr(user, "is_authenticated", False):
         return user
-    user_id = (
-        request.headers.get("X-User-Id")
-        or request.data.get("user_id")
-        or request.query_params.get("user_id")
-    )
-    if user_id:
-        return AllUsers.objects.filter(user_id=user_id).first()
     return None
+
+
+def _roadmap_to_dict(rm_obj: LearningRoadmap) -> dict:
+    stages = rm_obj.stages if isinstance(rm_obj.stages, list) else []
+    return {
+        "key": rm_obj.key,
+        "title": rm_obj.title,
+        "category": rm_obj.category,
+        "badge": rm_obj.badge,
+        "description": rm_obj.description,
+        "icon": rm_obj.icon,
+        "accent_color": rm_obj.accent_color,
+        "estimated_weeks": rm_obj.estimated_weeks,
+        "order": rm_obj.order,
+        "is_active": rm_obj.is_active,
+        "stages": stages,
+    }
+
+
+def _normalize_stages(raw_stages) -> list:
+    if not isinstance(raw_stages, list):
+        return []
+    cleaned = []
+    for idx, st in enumerate(raw_stages, start=1):
+        if not isinstance(st, dict):
+            continue
+        title = str(st.get("title") or "").strip()
+        if not title:
+            continue
+        try:
+            stage_number = int(st.get("stage_number") or idx)
+        except (TypeError, ValueError):
+            stage_number = idx
+        diff = str(st.get("difficulty") or "Beginner").strip()
+        if diff not in ("Beginner", "Intermediate", "Advanced"):
+            diff = "Beginner"
+        raw_topics = st.get("topics")
+        topics = (
+            [str(t).strip() for t in raw_topics if str(t).strip()]
+            if isinstance(raw_topics, list)
+            else []
+        )
+        cleaned.append(
+            {
+                "stage_number": stage_number,
+                "badge_text": str(st.get("badge_text") or f"STEP {stage_number:02d}").strip(),
+                "title": title,
+                "description": str(st.get("description") or "").strip(),
+                "color": str(st.get("color") or "#3B82F6").strip(),
+                "difficulty": diff,
+                "estimated_hours": str(st.get("estimated_hours") or "15 Hours").strip(),
+                "tutorial_link": str(st.get("tutorial_link") or "/tutorials").strip(),
+                "practice_link": str(st.get("practice_link") or "/codelab").strip(),
+                "topics": topics,
+            }
+        )
+    cleaned.sort(key=lambda s: s["stage_number"])
+    return cleaned
 
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def list_career_roadmaps(request):
     """
-    Returns list of all 7 career roadmaps with summary progress for current user.
+    Returns summary preview list of active career roadmaps.
+    Full roadmap details require user authentication.
     """
-    user = _resolve_user(request)
+    user = _resolve_authenticated_user(request)
     category = request.query_params.get("category", "").strip().lower()
     search = request.query_params.get("q", "").strip().lower()
 
-    # User progress map: { "frontend_roadmap": {1: True, 2: True}, ... }
     user_progress_map = {}
     if user:
         progress_entries = LearningRoadmapProgress.objects.filter(
@@ -853,25 +905,23 @@ def list_career_roadmaps(request):
         ).values("roadmap_key", "stage_number")
         for entry in progress_entries:
             key = entry["roadmap_key"]
-            if key not in user_progress_map:
-                user_progress_map[key] = set()
-            user_progress_map[key].add(entry["stage_number"])
+            user_progress_map.setdefault(key, set()).add(entry["stage_number"])
 
+    roadmaps_qs = LearningRoadmap.objects.filter(is_active=True).order_by("order", "id")
     roadmaps_data = []
-    for rm in OFFICIAL_ROADMAPS:
-        # Filter by category
+    for rm_obj in roadmaps_qs:
+        rm = _roadmap_to_dict(rm_obj)
         if category and category != "all" and rm["category"].lower() != category:
             continue
 
-        # Filter by search
         if search:
             match_title = search in rm["title"].lower()
             match_desc = search in rm["description"].lower()
             match_key = search in rm["key"].lower()
             match_topic = any(
-                search in topic.lower()
+                search in str(topic).lower()
                 for st in rm["stages"]
-                for topic in st["topics"]
+                for topic in (st.get("topics") or [])
             )
             if not (match_title or match_desc or match_key or match_topic):
                 continue
@@ -881,14 +931,13 @@ def list_career_roadmaps(request):
         completed_count = len(completed_stage_numbers)
         percent = int((completed_count / stages_total) * 100) if stages_total > 0 else 0
 
-        # Determine current stage (first incomplete stage)
         current_stage = 1
         for st in rm["stages"]:
-            if st["stage_number"] not in completed_stage_numbers:
-                current_stage = st["stage_number"]
+            if st.get("stage_number") not in completed_stage_numbers:
+                current_stage = st.get("stage_number", 1)
                 break
         else:
-            current_stage = stages_total
+            current_stage = max(stages_total, 1)
 
         roadmaps_data.append({
             "key": rm["key"],
@@ -898,59 +947,69 @@ def list_career_roadmaps(request):
             "description": rm["description"],
             "icon": rm["icon"],
             "accent_color": rm["accent_color"],
-            "estimated_weeks": rm.get("estimated_weeks", "12-16 Weeks"),
+            "estimated_weeks": rm["estimated_weeks"] or "12-16 Weeks",
             "total_stages": stages_total,
             "completed_stages": completed_count,
             "progress_percent": percent,
             "current_stage": current_stage,
             "stages_summary": [
                 {
-                    "stage_number": s["stage_number"],
-                    "title": s["title"],
-                    "completed": s["stage_number"] in completed_stage_numbers,
+                    "stage_number": s.get("stage_number", idx + 1),
+                    "title": s.get("title", ""),
+                    "completed": s.get("stage_number") in completed_stage_numbers,
                 }
-                for s in rm["stages"]
+                for idx, s in enumerate(rm["stages"][:4])
             ],
         })
 
     return Response({
         "status": True,
+        "requires_auth": user is None,
         "count": len(roadmaps_data),
         "roadmaps": roadmaps_data,
     })
 
 
 @api_view(["GET"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def get_career_roadmap_detail(request, roadmap_key):
     """
     Returns full details of a specific roadmap with all stages, subtopics,
-    and completion status.
+    and completion status. Strictly requires an authenticated user.
     """
-    roadmap = next((rm for rm in OFFICIAL_ROADMAPS if rm["key"] == roadmap_key), None)
-    if not roadmap:
+    user = _resolve_authenticated_user(request)
+    if not user:
+        return Response(
+            {
+                "status": False,
+                "requires_auth": True,
+                "message": "Authentication required to access the full roadmap.",
+            },
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    rm_obj = LearningRoadmap.objects.filter(key=roadmap_key, is_active=True).first()
+    if not rm_obj:
         return Response(
             {"status": False, "message": f"Roadmap '{roadmap_key}' not found."},
             status=status.HTTP_404_NOT_FOUND,
         )
 
-    user = _resolve_user(request)
+    roadmap = _roadmap_to_dict(rm_obj)
     completed_stages = {}
-    if user:
-        entries = LearningRoadmapProgress.objects.filter(
-            user=user, roadmap_key=roadmap_key
-        ).values("stage_number", "completed", "completed_subtopics")
-        for ent in entries:
-            completed_stages[ent["stage_number"]] = {
-                "completed": ent["completed"],
-                "completed_subtopics": ent["completed_subtopics"] or [],
-            }
+    entries = LearningRoadmapProgress.objects.filter(
+        user=user, roadmap_key=roadmap_key
+    ).values("stage_number", "completed", "completed_subtopics")
+    for ent in entries:
+        completed_stages[ent["stage_number"]] = {
+            "completed": ent["completed"],
+            "completed_subtopics": ent["completed_subtopics"] or [],
+        }
 
-    # Build response with stages
     stages_with_status = []
     completed_count = 0
     for st in roadmap["stages"]:
-        st_num = st["stage_number"]
+        st_num = st.get("stage_number")
         st_prog = completed_stages.get(st_num, {})
         is_completed = st_prog.get("completed", False)
         subtopics_done = st_prog.get("completed_subtopics", [])
@@ -979,13 +1038,11 @@ def get_career_roadmap_detail(request, roadmap_key):
 
 
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def toggle_career_stage_progress(request, roadmap_key, stage_number):
-    """
-    Toggle or explicitly set completion status for a stage and roadmap key.
-    """
-    roadmap = next((rm for rm in OFFICIAL_ROADMAPS if rm["key"] == roadmap_key), None)
-    if not roadmap:
+    """Toggle or explicitly set completion status for a stage and roadmap key."""
+    rm_obj = LearningRoadmap.objects.filter(key=roadmap_key, is_active=True).first()
+    if not rm_obj:
         return Response(
             {"status": False, "message": f"Roadmap '{roadmap_key}' not found."},
             status=status.HTTP_404_NOT_FOUND,
@@ -999,10 +1056,10 @@ def toggle_career_stage_progress(request, roadmap_key, stage_number):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    user = _resolve_user(request)
+    user = _resolve_authenticated_user(request)
     if not user:
         return Response(
-            {"status": False, "message": "User authentication required to save progress to server."},
+            {"status": False, "message": "User authentication required."},
             status=status.HTTP_401_UNAUTHORIZED,
         )
 
@@ -1025,11 +1082,10 @@ def toggle_career_stage_progress(request, roadmap_key, stage_number):
                 progress_obj.completed_subtopics = list(subtopics)
             progress_obj.save()
 
-    # Calculate overall progress for this roadmap
     completed_count = LearningRoadmapProgress.objects.filter(
         user=user, roadmap_key=roadmap_key, completed=True
     ).count()
-    total_stages = len(roadmap["stages"])
+    total_stages = len(rm_obj.stages or [])
     percent = int((completed_count / total_stages) * 100) if total_stages > 0 else 0
 
     return Response({
@@ -1044,12 +1100,10 @@ def toggle_career_stage_progress(request, roadmap_key, stage_number):
 
 
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def reset_career_roadmap_progress(request, roadmap_key):
-    """
-    Reset all stage progress for a given roadmap key, matching ProgressManager.resetProgress().
-    """
-    user = _resolve_user(request)
+    """Reset all stage progress for a given roadmap key."""
+    user = _resolve_authenticated_user(request)
     if not user:
         return Response(
             {"status": False, "message": "User authentication required."},
@@ -1070,20 +1124,10 @@ def reset_career_roadmap_progress(request, roadmap_key):
 
 
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def sync_career_roadmaps_progress(request):
-    """
-    Batch synchronizes local/guest roadmap progress with the user account on sign-in.
-    Payload:
-    {
-        "progress": {
-            "frontend_roadmap": [1, 2, 3],
-            "backend_roadmap": [1],
-            ...
-        }
-    }
-    """
-    user = _resolve_user(request)
+    """Batch synchronizes local roadmap progress with the authenticated user account."""
+    user = _resolve_authenticated_user(request)
     if not user:
         return Response(
             {"status": False, "message": "User authentication required."},
@@ -1120,4 +1164,95 @@ def sync_career_roadmaps_progress(request):
         "message": f"Successfully synced {synced_items} completed stages.",
         "synced_count": synced_items,
     })
+
+
+# ==============================================================================
+# ADMIN ROADMAP MANAGEMENT ENDPOINTS (CREATE, UPDATE, DELETE)
+# ==============================================================================
+
+def _admin_serialize_roadmap(rm_obj: LearningRoadmap) -> dict:
+    stages = rm_obj.stages if isinstance(rm_obj.stages, list) else []
+    return {
+        "key": rm_obj.key,
+        "title": rm_obj.title,
+        "category": rm_obj.category,
+        "badge": rm_obj.badge,
+        "description": rm_obj.description,
+        "icon": rm_obj.icon,
+        "accent_color": rm_obj.accent_color,
+        "estimated_weeks": rm_obj.estimated_weeks,
+        "order": rm_obj.order,
+        "is_active": rm_obj.is_active,
+        "stages": stages,
+        "total_stages": len(stages),
+        "created_at": rm_obj.created_at.isoformat() if rm_obj.created_at else None,
+        "updated_at": rm_obj.updated_at.isoformat() if rm_obj.updated_at else None,
+    }
+
+
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated, IsAdminUser])
+def admin_career_roadmaps(request):
+    if request.method == "GET":
+        qs = LearningRoadmap.objects.all().order_by("order", "id")
+        return Response({
+            "status": True,
+            "roadmaps": [_admin_serialize_roadmap(r) for r in qs],
+        })
+
+    title = str(request.data.get("title") or "").strip()
+    if not title:
+        return Response({"detail": "Roadmap title is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    raw_key = str(request.data.get("key") or "").strip()
+    clean_key = re.sub(r"[^a-z0-9_]+", "_", slugify(raw_key or title).replace("-", "_")).strip("_")
+    if not clean_key:
+        clean_key = f"roadmap_{LearningRoadmap.objects.count() + 1}"
+    if LearningRoadmap.objects.filter(key=clean_key).exists():
+        return Response({"detail": f"A roadmap with key '{clean_key}' already exists."}, status=status.HTTP_400_BAD_REQUEST)
+
+    stages = _normalize_stages(request.data.get("stages") or [])
+    max_order = LearningRoadmap.objects.count() + 1
+    rm_obj = LearningRoadmap.objects.create(
+        key=clean_key,
+        title=title,
+        category=str(request.data.get("category") or "Web Development").strip(),
+        badge=str(request.data.get("badge") or "INFOGRAPHICS TIMELINE").strip(),
+        description=str(request.data.get("description") or "").strip(),
+        icon=str(request.data.get("icon") or "code").strip(),
+        accent_color=str(request.data.get("accent_color") or "#3B82F6").strip(),
+        estimated_weeks=str(request.data.get("estimated_weeks") or "12-16 Weeks").strip(),
+        order=int(request.data.get("order") if request.data.get("order") is not None else max_order),
+        is_active=bool(request.data.get("is_active", True)),
+        stages=stages,
+    )
+    return Response(_admin_serialize_roadmap(rm_obj), status=status.HTTP_201_CREATED)
+
+
+@api_view(["GET", "PATCH", "DELETE"])
+@permission_classes([IsAuthenticated, IsAdminUser])
+def admin_career_roadmap_detail(request, roadmap_key):
+    rm_obj = LearningRoadmap.objects.filter(key=roadmap_key).first()
+    if not rm_obj:
+        return Response({"detail": f"Roadmap '{roadmap_key}' not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == "GET":
+        return Response(_admin_serialize_roadmap(rm_obj))
+
+    if request.method == "DELETE":
+        LearningRoadmapProgress.objects.filter(roadmap_key=rm_obj.key).delete()
+        rm_obj.delete()
+        return Response({"deleted": True}, status=status.HTTP_204_NO_CONTENT)
+
+    for field in ("title", "category", "badge", "description", "icon", "accent_color", "estimated_weeks"):
+        if field in request.data:
+            setattr(rm_obj, field, str(request.data.get(field) or "").strip())
+    if "order" in request.data and request.data["order"] is not None:
+        rm_obj.order = int(request.data["order"])
+    if "is_active" in request.data:
+        rm_obj.is_active = bool(request.data["is_active"])
+    if "stages" in request.data:
+        rm_obj.stages = _normalize_stages(request.data.get("stages"))
+    rm_obj.save()
+    return Response(_admin_serialize_roadmap(rm_obj))
 

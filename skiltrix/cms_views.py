@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import uuid
 from pathlib import Path
@@ -8,12 +9,14 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 from django.utils.text import slugify
 
+from apis.cdn_utils import get_st_image_url
 from .cms_models import CmsCourse, CmsPage, CmsMedia, CmsBuildJob
 from .cms_generator import (
     generate_course_page_files,
     delete_course_page_files,
     update_cms_manifest,
-    get_skiltrix_generated_root
+    get_skiltrix_generated_root,
+    jsx_to_html,
 )
 
 
@@ -48,6 +51,8 @@ def cms_courses_api(request):
                 "description": c.description,
                 "category": c.category,
                 "icon": c.icon,
+                "image": c.image,
+                "image_url": get_st_image_url(c.image) if c.image else "",
                 "status": c.status,
                 "order": c.order,
                 "pages_count": c.pages.count(),
@@ -78,6 +83,7 @@ def cms_courses_api(request):
             description=body.get("description", "").strip(),
             category=body.get("category", "languages"),
             icon=body.get("icon", "book-open"),
+            image=(body.get("image") or "").strip(),
             status=body.get("status", "published"),
             order=int(body.get("order", 0)),
         )
@@ -89,6 +95,8 @@ def cms_courses_api(request):
                 "course_id": course.course_id,
                 "title": course.title,
                 "slug": course.slug,
+                "image": course.image,
+                "image_url": get_st_image_url(course.image) if course.image else "",
                 "status": course.status,
             }
         })
@@ -116,6 +124,8 @@ def cms_course_detail_api(request, course_id):
                 "description": course.description,
                 "category": course.category,
                 "icon": course.icon,
+                "image": course.image,
+                "image_url": get_st_image_url(course.image) if course.image else "",
                 "status": course.status,
                 "order": course.order,
                 "created_at": course.created_at.isoformat(),
@@ -133,12 +143,25 @@ def cms_course_detail_api(request, course_id):
             course.category = body["category"]
         if "icon" in body:
             course.icon = body["icon"]
+        if "image" in body:
+            course.image = (body["image"] or "").strip()
         if "status" in body:
             course.status = body["status"]
         if "order" in body:
             course.order = int(body["order"])
         course.save()
-        return JsonResponse({"status": True, "message": "Course updated successfully"})
+        return JsonResponse({
+            "status": True,
+            "message": "Course updated successfully",
+            "course": {
+                "course_id": course.course_id,
+                "title": course.title,
+                "slug": course.slug,
+                "image": course.image,
+                "image_url": get_st_image_url(course.image) if course.image else "",
+                "status": course.status,
+            }
+        })
 
     elif request.method == "DELETE":
         course.delete()
@@ -270,27 +293,33 @@ def cms_page_detail_api(request, page_id):
         return JsonResponse({"status": False, "message": "Page not found"}, status=404)
 
     if request.method == "GET":
-        # Read content from generated file if available
-        existing_html = ""
-        existing_css = ""
-        existing_js = ""
+        # Prefer draft_html (always saved by Save Draft).
+        # Fall back to reading from generated TSX file for published pages with no draft yet.
+        existing_html = page.draft_html or ""
+        existing_css = page.draft_css or ""
+        existing_js = page.draft_js or ""
 
-        if page.file_path:
+        if not existing_html and page.file_path:
             base_dir = Path(settings.BASE_DIR).parent
-            tsx_path = base_dir / page.file_path
+            tsx_path = base_dir / Path(page.file_path.replace("\\", "/"))
             if tsx_path.exists():
                 try:
                     content = tsx_path.read_text(encoding="utf-8")
                     # Extract the inner HTML content from dangerouslySetInnerHTML={{ __html: `...` }}
-                    m = re.search(r'dangerouslySetInnerHTML=\{\{\s*__html:\s*`(.*?)`\s*\}\}', content, re.DOTALL)
+                    m = re.search(
+                        r'dangerouslySetInnerHTML=\{\{\s*__html:\s*`((?:\\.|[^`\\])*)`\s*\}\}',
+                        content,
+                        re.DOTALL,
+                    )
                     if m:
-                        existing_html = m.group(1).replace('\\`', '`').replace('\\$', '$')
+                        raw_html = m.group(1).replace('\\`', '`').replace('\\$', '$').replace('\\\\', '\\')
+                        existing_html = jsx_to_html(raw_html)
                 except Exception as e:
                     print(f"Error reading TSX content: {e}")
 
-        if page.css_path:
+        if not existing_css and page.css_path:
             base_dir = Path(settings.BASE_DIR).parent
-            css_path = base_dir / page.css_path
+            css_path = base_dir / Path(page.css_path.replace("\\", "/"))
             if css_path.exists():
                 try:
                     existing_css = css_path.read_text(encoding="utf-8")
@@ -332,8 +361,36 @@ def cms_page_detail_api(request, page_id):
 
     elif request.method in ["PUT", "PATCH"]:
         body = _json_body(request)
+        old_file_path = page.file_path
+        old_url_path = page.url_path
+
+        if "course_id" in body and body["course_id"]:
+            new_course = CmsCourse.objects.filter(course_id=body["course_id"]).first()
+            if new_course:
+                page.course = new_course
+
+        if "parent_id" in body:
+            pid = body["parent_id"]
+            if pid:
+                parent_obj = CmsPage.objects.filter(page_id=pid, course=page.course).first()
+                if parent_obj and parent_obj.pk != page.pk:
+                    page.parent = parent_obj
+            else:
+                page.parent = None
+
         if "title" in body:
             page.title = body["title"].strip()
+
+        raw_slug = body.get("slug")
+        if raw_slug is not None and str(raw_slug).strip():
+            base_slug = slugify(str(raw_slug).strip()) or slugify(page.title) or "page"
+            candidate = base_slug
+            counter = 1
+            while CmsPage.objects.filter(course=page.course, slug=candidate).exclude(pk=page.pk).exists():
+                candidate = f"{base_slug}-{counter}"
+                counter += 1
+            page.slug = candidate
+
         if "seo_title" in body:
             page.seo_title = body["seo_title"].strip()
         if "seo_description" in body:
@@ -352,8 +409,40 @@ def cms_page_detail_api(request, page_id):
             page.prev_page = CmsPage.objects.filter(page_id=body["prev_page_id"]).first()
         if "next_page_id" in body:
             page.next_page = CmsPage.objects.filter(page_id=body["next_page_id"]).first()
+
+        # Persist draft content so it survives page refresh without publishing
+        if "content_html" in body:
+            page.draft_html = body["content_html"] or ""
+        if "content_css" in body:
+            page.draft_css = body["content_css"] or ""
+        if "content_js" in body:
+            page.draft_js = body["content_js"] or ""
+
+        # Recompute hierarchical URL path whenever course, parent, or slug changes
+        hierarchy = [page.slug]
+        curr = page.parent
+        while curr:
+            hierarchy.insert(0, curr.slug)
+            curr = curr.parent
+        page.url_path = f"/courses/{page.course.slug}/{'/'.join(hierarchy)}/"
+
+        if old_url_path != page.url_path and old_file_path:
+            delete_course_page_files(old_file_path)
+
         page.save()
-        return JsonResponse({"status": True, "message": "Page updated successfully"})
+        if page.status == "published" and old_url_path != page.url_path:
+            update_cms_manifest()
+
+        return JsonResponse({
+            "status": True,
+            "message": "Page updated successfully",
+            "page": {
+                "page_id": page.page_id,
+                "slug": page.slug,
+                "url_path": page.url_path,
+                "title": page.title,
+            },
+        })
 
     elif request.method == "DELETE":
         if page.file_path:
@@ -384,8 +473,17 @@ def cms_publish_page_api(request, page_id):
     custom_js = body.get("custom_js", "").strip()
 
     # Optional metadata updates passed with publish
+    old_file_path = page.file_path
     if body.get("title"):
         page.title = body["title"].strip()
+    if body.get("slug"):
+        base_slug = slugify(body["slug"].strip()) or slugify(page.title) or "page"
+        candidate = base_slug
+        counter = 1
+        while CmsPage.objects.filter(course=page.course, slug=candidate).exclude(pk=page.pk).exists():
+            candidate = f"{base_slug}-{counter}"
+            counter += 1
+        page.slug = candidate
     if body.get("seo_title"):
         page.seo_title = body["seo_title"].strip()
     if body.get("seo_description"):
@@ -396,10 +494,10 @@ def cms_publish_page_api(request, page_id):
         page.video_thumbnail = body.get("video_thumbnail", "").strip()
         page.video_target = body.get("video_target", "_blank")
 
-    if body.get("prev_page_id"):
-        page.prev_page = CmsPage.objects.filter(page_id=body["prev_page_id"]).first()
-    if body.get("next_page_id"):
-        page.next_page = CmsPage.objects.filter(page_id=body["next_page_id"]).first()
+    if "prev_page_id" in body:
+        page.prev_page = CmsPage.objects.filter(page_id=body["prev_page_id"]).first() if body.get("prev_page_id") else None
+    if "next_page_id" in body:
+        page.next_page = CmsPage.objects.filter(page_id=body["next_page_id"]).first() if body.get("next_page_id") else None
 
     # Determine slug hierarchy for nesting
     hierarchy_slugs = []
@@ -408,14 +506,10 @@ def cms_publish_page_api(request, page_id):
         hierarchy_slugs.insert(0, curr.slug)
         curr = curr.parent
     hierarchy_slugs.append(page.slug)
+    page.url_path = f"/courses/{page.course.slug}/{'/'.join(hierarchy_slugs)}/"
 
-    # Breadcrumbs
-    breadcrumbs = [{"label": "Courses", "to": "/courses"}]
-    breadcrumbs.append({
-        "label": page.course.title,
-        "to": f"/courses/{page.course.slug}"
-    })
-
+    # Intermediate parent topic breadcrumbs (CoursePageShell renders Home / Courses / CourseTitle and current page title)
+    breadcrumbs = []
     curr_path = f"/courses/{page.course.slug}"
     curr_crumb = page.parent
     parent_crumbs = []
@@ -426,8 +520,6 @@ def cms_publish_page_api(request, page_id):
     for pc in parent_crumbs:
         curr_path = f"{curr_path}/{pc.slug}"
         breadcrumbs.append({"label": pc.title, "to": curr_path})
-
-    breadcrumbs.append({"label": page.title})
 
     # Prepare navigation links
     prev_link = {
@@ -463,9 +555,15 @@ def cms_publish_page_api(request, page_id):
             video_data=video_data,
         )
 
+        if old_file_path and old_file_path != gen_res["file_path"]:
+            delete_course_page_files(old_file_path)
+
         page.file_path = gen_res["file_path"]
         page.css_path = gen_res["css_path"]
         page.js_path = gen_res["js_path"]
+        page.draft_html = html_content
+        page.draft_css = custom_css
+        page.draft_js = custom_js
         page.status = "published"
         page.save()
 
@@ -475,6 +573,7 @@ def cms_publish_page_api(request, page_id):
         return JsonResponse({
             "status": True,
             "message": "Page published and compiled successfully!",
+            "slug": page.slug,
             "url_path": page.url_path,
             "file_path": page.file_path,
             "css_path": page.css_path,
@@ -533,7 +632,18 @@ def cms_navigation_tree_api(request, course_id):
             return tree
 
         tree = build_tree(None)
-        return JsonResponse({"status": True, "tree": tree, "course": {"title": course.title, "slug": course.slug}})
+        return JsonResponse({
+            "status": True,
+            "tree": tree,
+            "course": {
+                "title": course.title,
+                "slug": course.slug,
+                "description": course.description,
+                "category": course.category,
+                "image": course.image,
+                "image_url": get_st_image_url(course.image) if course.image else "",
+            },
+        })
 
     elif request.method == "POST":
         body = _json_body(request)

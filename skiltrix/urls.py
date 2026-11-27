@@ -55,6 +55,8 @@ urlpatterns = [
     # Accounts & SSO fallback routes if client requests under apps/skiltrix/api
     path('api/api/accounts/', include('accounts.urls')),
     path('api/accounts/', include('accounts.urls')),
+    # Coding Assessment Module APIs (must precede DRF router assessments/<id>/ lookup)
+    path('api/assessments/coding/', include('skiltrix.coding_assessment_urls')),
     path('api/', include(router.urls)),
     path('api/actions/submit-code/', views.submit_code, name="submit-code"),
     path('api/actions/run-sample-code/', views.run_sample_code, name="run-sample-code"),
@@ -87,15 +89,17 @@ urlpatterns = [
     # SkilTrix Career Learning Roadmaps (Matching Android App Implementation)
     # ==============================================================================
     path('api/learning-roadmaps/', roadmap_views.list_career_roadmaps, name="career-roadmaps-list"),
+    path('api/learning-roadmaps/sync/', roadmap_views.sync_career_roadmaps_progress, name="career-roadmaps-sync"),
     path('api/learning-roadmaps/<str:roadmap_key>/', roadmap_views.get_career_roadmap_detail, name="career-roadmap-detail"),
     path('api/learning-roadmaps/<str:roadmap_key>/stage/<int:stage_number>/toggle/', roadmap_views.toggle_career_stage_progress, name="career-roadmap-stage-toggle"),
     path('api/learning-roadmaps/<str:roadmap_key>/reset/', roadmap_views.reset_career_roadmap_progress, name="career-roadmap-reset"),
-    path('api/learning-roadmaps/sync/', roadmap_views.sync_career_roadmaps_progress, name="career-roadmaps-sync"),
+    path('api/admin/roadmaps/', roadmap_views.admin_career_roadmaps, name="admin-career-roadmaps"),
+    path('api/admin/roadmaps/<str:roadmap_key>/', roadmap_views.admin_career_roadmap_detail, name="admin-career-roadmap-detail"),
     path('learning-roadmaps/', roadmap_views.list_career_roadmaps),
+    path('learning-roadmaps/sync/', roadmap_views.sync_career_roadmaps_progress),
     path('learning-roadmaps/<str:roadmap_key>/', roadmap_views.get_career_roadmap_detail),
     path('learning-roadmaps/<str:roadmap_key>/stage/<int:stage_number>/toggle/', roadmap_views.toggle_career_stage_progress),
     path('learning-roadmaps/<str:roadmap_key>/reset/', roadmap_views.reset_career_roadmap_progress),
-    path('learning-roadmaps/sync/', roadmap_views.sync_career_roadmaps_progress),
 
 
 

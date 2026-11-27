@@ -354,3 +354,106 @@ class GlobalAccountsAndSSOTests(TestCase):
         self.assertEqual(res2.data["user"]["email"], "testuser1@example.com")
         self.assertIn("access_token", res2.data)
 
+    def test_13_skiltrix_firebase_only_and_admin_user_filtering(self):
+        """13. Reject SFS Firebase tokens, accept SkilTrix Firebase RS256 tokens, and scope SkilTrix admin users."""
+        from datetime import datetime, timedelta, timezone as dt_timezone
+        from unittest.mock import patch
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import padding, rsa
+        from cryptography.x509.oid import NameOID
+        from django.core.cache import cache
+
+        # Generate ephemeral RSA key + self-signed cert to test full RS256 verification
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "skiltrix-test")])
+        now = datetime.now(dt_timezone.utc)
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(subject)
+            .issuer_name(issuer)
+            .public_key(private_key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - timedelta(minutes=5))
+            .not_valid_after(now + timedelta(hours=1))
+            .sign(private_key, hashes.SHA256())
+        )
+        cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode("utf-8")
+
+        def make_jwt(project_id: str, email: str, kid: str = "test-kid-1") -> str:
+            def b64(data: bytes) -> str:
+                return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+            hdr = b64(json.dumps({"alg": "RS256", "typ": "JWT", "kid": kid}).encode("utf-8"))
+            pld = b64(json.dumps({
+                "aud": project_id,
+                "iss": f"https://securetoken.google.com/{project_id}",
+                "sub": "firebase-uid-123",
+                "email": email,
+                "exp": int(now.timestamp()) + 3600,
+            }).encode("utf-8"))
+            sig_input = f"{hdr}.{pld}".encode("ascii")
+            sig = private_key.sign(sig_input, padding.PKCS1v15(), hashes.SHA256())
+            return f"{hdr}.{pld}.{b64(sig)}"
+
+        cache.delete("skiltrix_firebase_x509_certs")
+        with patch("accounts.tokens._get_firebase_public_certs", return_value={"test-kid-1": cert_pem}):
+            # 1. SFS Firebase token rejected on Google and GitHub endpoints
+            sfs_token = make_jwt("sfs-blueprints-21", "sfsuser@example.com")
+            bad_google = self.client.post("/api/accounts/google/", {
+                "email": "sfsuser@example.com",
+                "name": "SFS",
+                "id_token": sfs_token,
+            }, format="json")
+            self.assertEqual(bad_google.status_code, status.HTTP_401_UNAUTHORIZED)
+            self.assertFalse(bad_google.data["status"])
+
+            bad_github = self.client.post("/api/accounts/github/", {
+                "email": "sfsuser@example.com",
+                "name": "SFS",
+                "id_token": sfs_token,
+            }, format="json")
+            self.assertEqual(bad_github.status_code, status.HTTP_401_UNAUTHORIZED)
+
+            # 2. SkilTrix Firebase token succeeds and tags new SkilTrix client user with platform_name="skiltrix"
+            ClientApplication.objects.create(
+                client_id="skiltrix",
+                name="SkilTrix",
+                client_type="public",
+                allowed_redirect_uris="http://localhost:8443/auth/callback",
+                is_enabled=True,
+            )
+            sk_token = make_jwt("skiltrix", "skstudent@example.com")
+            ok_google = self.client.post("/api/accounts/firebase/", {
+                "email": "skstudent@example.com",
+                "name": "SkStudent",
+                "client_id": "skiltrix",
+                "id_token": sk_token,
+            }, format="json")
+            self.assertEqual(ok_google.status_code, status.HTTP_200_OK)
+            created_sk = User.objects.get(email="skstudent@example.com")
+            self.assertEqual(created_sk.platform_name, "skiltrix")
+
+        # 3. Admin users filtering: app=skiltrix excludes pure sfs_blueprints users
+        User.objects.create(
+            user_id="USR_SFS_ONLY",
+            username="sfsonly",
+            email="sfsonly@example.com",
+            name="SFS Only Player",
+            platform="android",
+            platform_name="sfs_blueprints",
+            type="user",
+            status="approved",
+        )
+        sk_list = self.client.get("/api/admin/users/?app=skiltrix&limit=50")
+        self.assertEqual(sk_list.status_code, status.HTTP_200_OK)
+        sk_emails = [u["email"] for u in sk_list.json()["users"]]
+        self.assertIn("skstudent@example.com", sk_emails)
+        self.assertNotIn("sfsonly@example.com", sk_emails)
+
+        sfs_list = self.client.get("/api/admin/users/?app=sfs&limit=50")
+        self.assertEqual(sfs_list.status_code, status.HTTP_200_OK)
+        sfs_emails = [u["email"] for u in sfs_list.json()["users"]]
+        self.assertIn("sfsonly@example.com", sfs_emails)
+        self.assertNotIn("skstudent@example.com", sfs_emails)
+

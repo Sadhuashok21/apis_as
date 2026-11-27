@@ -2,6 +2,32 @@ from django.db import models
 from sfs.models import AllUsers
 
 
+class LearningRoadmap(models.Model):
+    """Stores admin-configurable career learning roadmaps and their stages."""
+
+    key = models.CharField(max_length=64, unique=True)
+    title = models.CharField(max_length=150)
+    category = models.CharField(max_length=80, default="Web Development")
+    badge = models.CharField(max_length=80, default="INFOGRAPHICS TIMELINE")
+    description = models.TextField(blank=True, default="")
+    icon = models.CharField(max_length=40, default="code")
+    accent_color = models.CharField(max_length=20, default="#3B82F6")
+    estimated_weeks = models.CharField(max_length=40, default="12-16 Weeks")
+    stages = models.JSONField(default=list, blank=True)
+    order = models.IntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        managed = True
+        db_table = "skiltrix_roadmaps"
+        ordering = ["order", "id"]
+
+    def __str__(self):
+        return f"{self.title} ({self.key})"
+
+
 class LearningRoadmapProgress(models.Model):
     """
     Stores user completion of stages in the 7 career roadmaps

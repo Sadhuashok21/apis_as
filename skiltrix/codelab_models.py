@@ -134,11 +134,13 @@ class ExecutionJob(models.Model):
 class SubmissionResult(models.Model):
     VERDICT_CHOICES = (
         ("Accepted", "Accepted"),
+        ("Partial Accepted", "Partial Accepted"),
         ("Wrong Answer", "Wrong Answer"),
         ("Time Limit Exceeded", "Time Limit Exceeded"),
         ("Memory Limit Exceeded", "Memory Limit Exceeded"),
         ("Runtime Error", "Runtime Error"),
         ("Compile Error", "Compile Error"),
+        ("Compilation Error", "Compilation Error"),
     )
 
     result_id = models.CharField(max_length=64, primary_key=True)

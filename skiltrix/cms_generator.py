@@ -72,6 +72,40 @@ def html_to_jsx(html: str) -> str:
     return jsx
 
 
+def jsx_to_html(jsx_str: str) -> str:
+    """
+    Reverses legacy `html_to_jsx` output inside stored `__html` strings back into
+    valid HTML attributes (`class`, `for`, `style="kebab-case: val;"`).
+    """
+    if not jsx_str:
+        return ""
+
+    html = jsx_str
+    html = re.sub(r'\bclassName=(["\'])', r'class=\1', html)
+    html = re.sub(r'\bhtmlFor=(["\'])', r'for=\1', html)
+    html = re.sub(r'\btabIndex=(["\'])', r'tabindex=\1', html)
+    html = re.sub(r'\bautoComplete=(["\'])', r'autocomplete=\1', html)
+    html = re.sub(r'\bcolSpan=(["\'])', r'colspan=\1', html)
+    html = re.sub(r'\browSpan=(["\'])', r'rowspan=\1', html)
+
+    def jsx_style_to_css(match):
+        inner = match.group(1).strip()
+        try:
+            obj = json.loads("{" + inner + "}")
+            pairs = []
+            for k, v in obj.items():
+                kebab_k = re.sub(r'([A-Z])', lambda m: '-' + m.group(1).lower(), k)
+                pairs.append(f"{kebab_k}: {v}")
+            css_str = "; ".join(pairs) + (";" if pairs else "")
+            css_str = css_str.replace('"', "'")
+            return f'style="{css_str}"'
+        except Exception:
+            return match.group(0)
+
+    html = re.sub(r'style=\{\{(.*?)\}\}', jsx_style_to_css, html, flags=re.DOTALL)
+    return html
+
+
 def generate_course_page_files(
     course_slug: str,
     page_slug_hierarchy: list[str],
@@ -116,17 +150,17 @@ def generate_course_page_files(
     depth = len(clean_parts) + 1  # course_slug + each sub-part
     rel_prefix = "../" * (depth + 1) + "components"
 
-    # 1. Write CSS file
+    # 1. Write CSS file (theme-aware using SkilTrix CSS variables with readable fallbacks)
     scoped_css = f"""/* Page-Specific Styles for: {page_title} */
 .generated-page-container {{
   max-width: 1000px;
   margin: 0 auto;
   padding: 1.5rem 1rem 4rem;
-  color: var(--text-color, #f8fafc);
+  color: var(--color-text, #0f172a);
 }}
 
 .generated-content h1, .generated-content h2, .generated-content h3 {{
-  color: #ffffff;
+  color: var(--color-text, #0f172a);
   font-weight: 700;
   margin-top: 2rem;
   margin-bottom: 0.75rem;
@@ -135,7 +169,7 @@ def generate_course_page_files(
 .generated-content p {{
   line-height: 1.75;
   margin-bottom: 1.25rem;
-  color: #cbd5e1;
+  color: var(--color-text-secondary, #334155);
 }}
 
 .generated-content table {{
@@ -147,14 +181,14 @@ def generate_course_page_files(
 }}
 
 .generated-content table th, .generated-content table td {{
-  border: 1px solid #334155;
+  border: 1px solid var(--color-border, #cbd5e1);
   padding: 10px 14px;
   text-align: left;
 }}
 
 .generated-content table th {{
-  background: #1e293b;
-  color: #f1f5f9;
+  background: var(--color-card, #f1f5f9);
+  color: var(--color-text, #0f172a);
   font-weight: 600;
 }}
 
@@ -162,7 +196,7 @@ def generate_course_page_files(
   border-left: 4px solid #6366f1;
   padding-left: 1rem;
   margin: 1.5rem 0;
-  color: #94a3b8;
+  color: var(--color-muted, #64748b);
   font-style: italic;
 }}
 
@@ -177,14 +211,17 @@ def generate_course_page_files(
         js_file.write_text("// Page client utilities\nexport default {};\n", encoding="utf-8")
 
     # 3. Construct TSX React component
-    jsx_content = html_to_jsx(html_content)
+    # Ensure HTML rendered inside dangerouslySetInnerHTML stays standard HTML (class / inline style string),
+    # rather than React JSX (className / style={{...}}) which breaks styling in HTML strings.
+    escaped_html = (
+        (html_content or "")
+        .replace("\\", "\\\\")
+        .replace("`", "\\`")
+        .replace("$", "\\$")
+    )
 
-    # Breadcrumbs representation
-    breadcrumbs_list = breadcrumbs or [
-        {"label": "Courses", "to": "/courses"},
-        {"label": course_title or clean_course_slug.replace("-", " ").title(), "to": f"/courses/{clean_course_slug}"},
-        {"label": page_title},
-    ]
+    # Intermediate breadcrumbs only (CoursePageShell already renders Home > Courses > CourseTitle and current page title)
+    breadcrumbs_list = breadcrumbs if breadcrumbs is not None else []
     breadcrumbs_json = json.dumps(breadcrumbs_list)
 
     prev_json = json.dumps(prev_page) if prev_page else "undefined"
@@ -209,6 +246,7 @@ def generate_course_page_files(
         </div>
         """
 
+    safe_course_title = (course_title or clean_course_slug.replace("-", " ").title()).replace('"', '\\"')
     safe_component_name = "".join(w.capitalize() for w in re.split(r"[\W_]+", f"{clean_course_slug}_{clean_parts[-1]}") if w) + "Page"
 
     tsx_content = f"""// AUTO-GENERATED COURSE PAGE: {page_title}
@@ -224,6 +262,7 @@ export default function {safe_component_name}() {{
   return (
     <CoursePageShell
       title="{page_title.replace('"', '\\"')}"
+      courseTitle="{safe_course_title}"
       courseSlug="{clean_course_slug}"
       breadcrumbs={{{breadcrumbs_json}}}
       prevPage={{{prev_json}}}
@@ -231,7 +270,7 @@ export default function {safe_component_name}() {{
     >
       <div className="generated-page-container">
         {video_block_jsx}
-        <div className="generated-content" dangerouslySetInnerHTML={{{{ __html: `{jsx_content.replace('`', '\\`').replace('$', '\\$')}` }}}} />
+        <div className="generated-content" dangerouslySetInnerHTML={{{{ __html: `{escaped_html}` }}}} />
       </div>
     </CoursePageShell>
   );
