@@ -1694,3 +1694,28 @@ class ConnectedDeviceAdmin(admin.ModelAdmin):
     search_fields = ("name", "user__username", "serial_port", "device_id")
 
 
+
+
+from .models import AssessmentAssignment, StudentBatch
+
+
+@admin.register(StudentBatch)
+class StudentBatchAdmin(admin.ModelAdmin):
+    list_display = ("batch_id", "name", "course", "is_active", "created_at")
+    search_fields = ("batch_id", "name")
+    filter_horizontal = ("students",)
+
+
+@admin.register(AssessmentAssignment)
+class AssessmentAssignmentAdmin(admin.ModelAdmin):
+    list_display = (
+        "assignment_id",
+        "assessment",
+        "student",
+        "batch",
+        "start_time",
+        "end_time",
+        "created_at",
+    )
+    list_filter = ("assessment",)
+    search_fields = ("assignment_id", "assessment__title", "student__email", "batch__name")

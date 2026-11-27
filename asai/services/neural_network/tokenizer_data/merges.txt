@@ -1,0 +1,715 @@
+  a
+i n
+   
+o n
+e n
+t h
+r e
+t i
+r a
+o r
+t e
+ti on
+e r
+e s
+  c
+in g
+ a n
+     
+a l
+i s
+  in
+  p
+d e
+r o
+  t
+  th
+en t
+  s
+  m
+a t
+  f
+ an d
+e d
+  n
+l e
+l a
+u n
+  w
+l o
+ t o
+  is
+  o
+u s
+s s
+a n
+  P
+c tion
+a r
+  A
+ n e
+v e
+c t
+
+     
+ th e
+i g
+w or
+
+ 
+
+c e
+  b
+  d
+ p ro
+u r
+re s
+y th
+yth on
+i t
+  I
+ra l
+u t
+m e
+i c
+f or
+  T
+ a r
+e l
+a b
+un ction
+de f
+  =
+er s
+a tion
+u ral
+l y
+  us
+i te
+i d
+g ra
+m ent
+la ss
+ o f
+a te
+wor k
+for m
+c h
+  e
+t s
+o d
+t work
+  h
+q u
+m m
+g e
+ f unction
+ P ython
+ m e
+ th at
+a s
+r i
+  lo
+ra n
+g u
+k e
+  v
+ w i
+ c lass
+a me
+ c o
+t en
+ in te
+ ne twork
+c o
+ran s
+gra mm
+gramm ing
+  O
+ig h
+p p
+  F
+re t
+ret ur
+retur n
+m p
+g s
+ wi th
+
+         
+ s t
+o s
+  (
+  S
+l l
+ ne ural
+ b y
+  on
+ T rans
+ f or
+  res
+i l
+it y
+) :
+m b
+ me th
+ meth od
+el f
+  {
+re d
+c es
+i f
+R E
+en ce
+  de
+ us ing
+ Trans form
+ a c
+a ge
+  la
+  *
+ a re
+i on
+  D
+o u
+k en
+  1
+S T
+W h
+ w e
+S A
+SA I
+c ent
+ Transform er
+ ar ch
+ arch ite
+ archite ct
+v a
+c u
+ c on
+ pro gramming
+ m a
+v er
+ inte r
+te d
+  re
+ s u
+m s
+  def
+  ke
+ ke y
+ key wor
+ keywor d
+  en
+ab le
+ment s
+ar gs
+d a
+_ _
+i z
+ a t
+s elf
+n ame
+  "
+ e x
+  M
+in e
+ to ken
+E T
+o ur
+Wh at
+ti f
+ic i
+ll ig
+ve lo
+velo p
+ A SAI
+u res
+is t
+u l
+m a
+ti c
+o w
+  L
+gu age
+t a
+j e
+ c an
+ ar gu
+re ate
+h e
+ers ion
+at a
+ction s
+  2
+  4
+ten d
+J a
+Ja va
+ co mp
+l ic
+ f ro
+ fro m
+  C
+ten tion
+  or
+d i
+Q L
+RE ST
+ res our
+s cent
+scent ra
+tif ici
+tifici al
+ I n
+ p ri
+ de velop
+a re
+ d es
+p e
+tion s
+P ython
+ h igh
+ab il
+ I t
+d ing
+b je
+bje ct
+ v al
+ a l
+m o
+reate d
+t r
+ in t
+ a m
+de red
+ co l
+  ite
+  i
+ s e
+  U
+n e
+H el
+Hel lo
+un d
+ d ata
+ method s
+b s
+  H
+  N
+e p
+u re
+os i
+ m o
+ mo de
+ mode l
+ m as
+ mas k
+  R
+di ent
+  l
+E L
+  W
+( )
+ A P
+ AP I
+ resour ce
+  y
+ In te
+llig ence
+ A scentra
+ Ascentra co
+ Ascentraco re
+ d i
+ di re
+o m
+ss ist
+ssist an
+ssistan t
+ pro v
+le ar
+o ut
+th e
+the ma
+thema tic
+ P ro
+ Pro gramming
+le ve
+leve l
+ la n
+ lan guage
+  it
+a d
+abil ity
+ s y
+ul ti
+ p a
+ o bject
+or i
+en ted
+unction s
+u la
+ lo g
+ val u
+E x
+mp le
+ c al
+ argu ments
+ * *
+k w
+kw args
+mb da
+ function s
+  x
+ class es
+ c reated
+tr u
+tru ct
+iz es
+te s
+ n ame
+ v ersion
+d u
+is ts
+ut able
+ col le
+ colle ctions
+ ite ms
+u mb
+umb ers
+en d
+u p
+" ,
+D e
+l es
+ se qu
+ 2 0
+i qu
+iqu e
+ e le
+ ele ments
+or s
+ b e
+un c
+in t
+l ing
+al s
+u al
+u b
+ub lic
+ ma in
+s te
+ste m
+  B
+id ing
+ces s
+lo w
+f er
+ inter f
+ interf a
+ architect ure
+an is
+Y ou
+ at tend
+a us
+aus al
+ mask ing
+ w h
+ token s
+ p osi
+ine ar
+ation s
+  gra
+ gra dient
+S QL
+ us ed
+g re
+ W H
+ WH E
+ WHE RE
+ti ve
+EL ET
+ELET E
+  REST
+ R e
+mo ve
+ o ut
+ 4 0
+  ra
+z _
+ lo ss
+  0
+ y ou
+ we b
+  .
+ we igh
+ weigh ts
+ar t
+ A r
+ Ar tificial
+ Inte lligence
+ pri v
+ priv ate
+ inte llig
+ intellig ent
+ develop ed
+  r
+ r un
+ dire ct
+ direct ly
+ lo c
+ loc al
+ar d
+ c us
+ cus t
+ cust om
+ des ig
+ desig n
+ design ed
+c y
+ a ssistant
+ prov id
+ provid es
+ra te
+ con c
+ conc is
+ concis e
+ h el
+ hel p
+ res p
+ resp on
+  qu
+ a b
+ ma thematic
+ s c
+ sc i
+ sci ence
+  te
+ te ch
+ tech n
+lo g
+  k
+ k n
+ kn ow
+ L an
+ Lan guage
+v i
+ it s
+ m ulti
+ multi p
+ pa ra
+ori ented
+c ed
+F unctions
+ def in
+ defin ed
+ en c
+a p
+ap s
+aps ula
+ce p
+ valu es
+Ex a
+Exa mple
+ cal cu
+ calcu la
+id th
+ h e
+ he igh
+ heigh t
+s o
+ argu ment
+ar i
+) .
+m al
+ la mbda
+qu are
+ T he
+  __
+ __ in
+ __in it
+ __init __
+ti al
+t ri
+b u
+c lass
+v ersion
+ int ro
+ intro du
+ O r
+ Or dered
+ m utable
+n umbers
+  5
+a pp
+app end
+K e
+Ke y
+u e
+ f as
+ fas t
+  ti
+ { "
+" :
+le x
+" }
+ sequ en
+ U n
+un ique
+De co
+Deco ra
+Decora t
+Decorat ors
+th er
+ a s
+ ex tend
+ m od
+ mod if
+e x
+e cu
+f unc
+ w ra
+ wra pp
+ wrapp er
+( *
+p r
+pr int
+" )
+as ed
+  Java
+  V
+t ual
+ M a
+p ublic
+  E
+ o pe
+i de
+n al
+ ac cess
+h er
+her it
+an ce
+l low
+p er
+h is
+ d if
+ dif fer
+ differ ent
+ th ro
+ thro u
+ throu g
+ throug h
+ interfa ces
+bs t
+bst ra
+ N e
+ D e
+n ing
+ation al
+ sy stem
+ la y
+ lay ers
+ ar tificial
+ s elf
+at tention
+ me ch
+ mech anis
+ mechanis ms
+t tention
+  You
+s ion
+ e mb
+ emb ed
+ embed ding
+tion al
+ar en
+res ent
+ en s
+ ens ures
+ wh en
+ p red
+ pred i
+ predi ct
+ predict ing
+ on ly
+ posi tions
+iz ation
+ t ra
+ tra in
+ train ing
+ a pp
+v ent
+at ab
+atab as
+an age
+ S QL
+er y
+ l i
+ li ke
+ F R
+ FR O
+ FRO M
+ O R
+E R
+E S
+m es
+A T
+at us
+  '
+i ed
+  id
+ ex p
+ API s
+ architect ural
+ st y
+ sty le
+ H T
+ HT T
+ HTT P
+  G
+ G ET
+ P O
+ PO ST
+ P U
+ PU T
+  /
+ D ELETE
+u th
+ F o
+ Fo und
+c k
+  +
+f t
+ft ma
+ftma x
+ pro b
+ prob ability
+ w he
+ whe re
+ a ll
+ su m
+z_ i
+ro ss
+ p er
+ per form
+os e
+ to da
+ toda y
+  lear
+ in de
+o p
+ develop ment
+ a ut
+H ow
+ d o
+ def ine
+ a d
+() ,
+ de ep
+ en ab
+ F als
+ Fals e
+ des cent
+j an
+jan g
+jang o

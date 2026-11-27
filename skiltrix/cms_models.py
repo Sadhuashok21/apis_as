@@ -20,6 +20,7 @@ class CmsCourse(models.Model):
     description = models.TextField(blank=True, default="")
     category = models.CharField(max_length=60, default="languages")
     icon = models.CharField(max_length=60, default="book-open")
+    image = models.CharField(max_length=500, blank=True, default="")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="published", db_index=True)
     order = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -72,6 +73,11 @@ class CmsPage(models.Model):
     video_url = models.CharField(max_length=500, blank=True, default="")
     video_thumbnail = models.CharField(max_length=500, blank=True, default="")
     video_target = models.CharField(max_length=10, choices=TARGET_CHOICES, default="_blank")
+
+    # Draft content (persisted so Save Draft survives page refresh without publishing)
+    draft_html = models.TextField(blank=True, default="")
+    draft_css = models.TextField(blank=True, default="")
+    draft_js = models.TextField(blank=True, default="")
 
     # Sequential Topic Navigation
     prev_page = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="next_links")

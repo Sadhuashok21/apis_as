@@ -13,10 +13,18 @@ from django.utils import timezone
 from django.utils.text import slugify
 from rest_framework import viewsets, status
 from rest_framework.decorators import api_view, permission_classes, action
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import AllowAny, IsAuthenticated, IsAuthenticatedOrReadOnly
 from rest_framework.response import Response
 
 from sfs.models import AllUsers
+
+
+def _get_authenticated_user(request):
+    user = getattr(request, "user", None)
+    if user and getattr(user, "is_authenticated", False):
+        return user
+    return None
 
 
 @ensure_csrf_cookie
@@ -253,15 +261,18 @@ def videos(request):
         "action": "retrieved"
     }
     from apis.cdn_utils import get_st_video_url, get_st_image_url
+    from .serializers import _user_has_course_access
     video_list = []
     for v in Videos.objects.filter(status="active").select_related("course", "user"):
         sec = getattr(v, "duration_seconds", 0) or 0
+        course_is_paid = bool(v.course and v.course.is_paid and (v.course.price or 0) > 0)
+        is_locked = not _user_has_course_access(request, v.course)
         v_dict = {
             "id": v.id,
             "video_id": v.video_id,
             "title": v.title,
             "description": v.description,
-            "video": v.video,
+            "video": "" if is_locked else v.video,
             "image": v.image,
             "duration_seconds": sec,
             "duration": f"{sec // 60}:{sec % 60:02d}" if sec > 0 else "—",
@@ -270,9 +281,12 @@ def videos(request):
             "views": v.views,
             "course": v.course.course_id if v.course else None,
             "course_name": v.course.name if v.course else "",
+            "course_is_paid": course_is_paid,
+            "course_price": float(v.course.price or 0) if v.course else 0.0,
+            "is_locked": is_locked,
             "instructor": v.user.name if v.user and v.user.name else "Sadhu Ashok Kumar",
             "created_at": v.created_at.isoformat() if v.created_at else None,
-            "video_url": get_st_video_url(v.video),
+            "video_url": "" if is_locked else get_st_video_url(v.video),
             "image_url": get_st_image_url(v.image),
         }
         video_list.append(v_dict)
@@ -358,6 +372,7 @@ class InternshipViewSet(viewsets.ModelViewSet):
 class CoursesViewSet(viewsets.ModelViewSet):
     serializer_class = CourseSerializer
     lookup_field = "course_id"
+    permission_classes = [IsAuthenticatedOrReadOnly]
 
     def get_queryset(self):
         qs = Courses.objects.filter(status="active").prefetch_related("modules__lessons")
@@ -370,7 +385,9 @@ class CoursesViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        user = AllUsers.objects.first()
+        user = _get_authenticated_user(self.request)
+        if not user:
+            raise PermissionDenied("Sign in required to create a course.")
         cid = serializer.validated_data.get("course_id") or f"crs_{uuid.uuid4().hex[:10]}"
         img = serializer.validated_data.get("image") or "default_course.png"
         serializer.save(user=user, course_id=cid, image=img)
@@ -379,6 +396,7 @@ class CoursesViewSet(viewsets.ModelViewSet):
 class VideosViewSet(viewsets.ModelViewSet):
     serializer_class = VideoSerializer
     lookup_field = "video_id"
+    permission_classes = [IsAuthenticatedOrReadOnly]
 
     def get_queryset(self):
         qs = Videos.objects.filter(status="active").prefetch_related("subtitles", "comment_video_id")
@@ -441,12 +459,59 @@ class VideosViewSet(viewsets.ModelViewSet):
             "duration": f"{instance.duration_seconds // 60}:{instance.duration_seconds % 60:02d}"
         })
 
-    def perform_create(self, serializer):
-        user = None
-        if hasattr(self.request, "user") and self.request.user.is_authenticated:
-            user = AllUsers.objects.filter(email=self.request.user.email).first()
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated], url_path="complete")
+    def complete(self, request, video_id=None):
+        """Mark a video as watched for the authenticated user and recalculate course enrollment progress."""
+        instance = self.get_object()
+        user = _get_authenticated_user(request)
         if not user:
-            user = AllUsers.objects.first()
+            return Response({"status": False, "message": "Authentication required."}, status=status.HTTP_401_UNAUTHORIZED)
+
+        course = instance.course
+        if not course:
+            return Response({"status": True, "video_id": instance.video_id, "progress_percent": 100})
+
+        enrollment = CourseEnrollments.objects.filter(user=user, course=course).first()
+        is_paid = bool(course.is_paid and (course.price or 0) > 0)
+        if not enrollment:
+            if is_paid:
+                return Response({"status": False, "message": "Enrollment required for this paid course."}, status=status.HTTP_403_FORBIDDEN)
+            enrollment = CourseEnrollments.objects.create(
+                enrollment_id=f"enr_{uuid.uuid4().hex[:12]}",
+                user=user,
+                course=course,
+            )
+
+        completed = list(enrollment.completed_videos or [])
+        if instance.video_id not in completed:
+            completed.append(instance.video_id)
+
+        module_lessons = sum(m.lessons.count() for m in course.modules.prefetch_related("lessons").all())
+        course_videos = course.courses_video_id.filter(status="active").count() or course.courses_video_id.count()
+        total_items = max(module_lessons, course_videos, 1)
+
+        progress = min(100, round((len(completed) / total_items) * 100))
+        enrollment.completed_videos = completed
+        enrollment.progress_percent = progress
+        if progress >= 100:
+            enrollment.is_completed = True
+            if not enrollment.completed_at:
+                enrollment.completed_at = timezone.now()
+        enrollment.save(update_fields=["completed_videos", "progress_percent", "is_completed", "completed_at"])
+
+        return Response({
+            "status": True,
+            "video_id": instance.video_id,
+            "course_id": course.course_id,
+            "progress_percent": enrollment.progress_percent,
+            "is_completed": enrollment.is_completed,
+            "completed_videos": enrollment.completed_videos,
+        })
+
+    def perform_create(self, serializer):
+        user = _get_authenticated_user(self.request)
+        if not user:
+            raise PermissionDenied("Sign in required to upload a video.")
         vid = serializer.validated_data.get("video_id") or f"vid_{uuid.uuid4().hex[:10]}"
         img = serializer.validated_data.get("image") or self.request.data.get("image") or "default_video.webp"
         video_val = serializer.validated_data.get("video") or self.request.data.get("video") or ""
@@ -460,31 +525,38 @@ class VideosViewSet(viewsets.ModelViewSet):
 class CommentsViewSet(viewsets.ModelViewSet):
     serializer_class = CommentSerializer
     queryset = Comments.objects.all().select_related("user", "video").order_by("-id")
+    permission_classes = [IsAuthenticatedOrReadOnly]
 
     def get_queryset(self):
-        qs = Comments.objects.all().select_related("user", "video").order_by("-id")
+        qs = Comments.objects.all().select_related("user", "video", "parent").order_by("-id")
         vid = self.request.query_params.get("video_id") or self.request.query_params.get("video")
         if vid:
             qs = qs.filter(video__video_id=vid)
         return qs
 
     def perform_create(self, serializer):
-        user = None
-        if hasattr(self.request, "user") and self.request.user.is_authenticated:
-            user = AllUsers.objects.filter(email=self.request.user.email).first()
+        user = _get_authenticated_user(self.request)
         if not user:
-            user_id = self.request.data.get("user_id")
-            if user_id:
-                user = AllUsers.objects.filter(user_id=user_id).first()
-        if not user:
-            user = AllUsers.objects.first()
+            raise PermissionDenied("Sign in required to post a comment.")
+
+        raw_parent_id = self.request.data.get("parent_id") or self.request.data.get("parent")
+        parent_comment = None
+        if raw_parent_id not in (None, ""):
+            try:
+                parent_comment = Comments.objects.select_related("video", "parent").filter(id=int(raw_parent_id)).first()
+            except (TypeError, ValueError):
+                parent_comment = None
+            if parent_comment and parent_comment.parent_id:
+                parent_comment = parent_comment.parent
 
         vid = self.request.data.get("video_id") or self.request.data.get("video")
         video = Videos.objects.filter(video_id=vid).first() if vid else None
+        if not video and parent_comment:
+            video = parent_comment.video
         if not video:
             video = Videos.objects.first()
 
-        serializer.save(user=user, video=video)
+        serializer.save(user=user, video=video, parent=parent_comment)
 
 
 class CodingProblemsViewSet(viewsets.ReadOnlyModelViewSet):
@@ -613,6 +685,7 @@ class CompanyRoadmapsViewSet(viewsets.ReadOnlyModelViewSet):
 
 class DiscussionsViewSet(viewsets.ModelViewSet):
     lookup_field = "discussion_id"
+    permission_classes = [IsAuthenticatedOrReadOnly]
 
     def get_queryset(self):
         qs = Discussions.objects.filter(status="active").select_related("user").prefetch_related("replies__user")
@@ -627,48 +700,22 @@ class DiscussionsViewSet(viewsets.ModelViewSet):
         return DiscussionListSerializer
 
     def perform_create(self, serializer):
-        user_id = self.request.data.get("user_id")
-        user = None
-        if user_id:
-            user = AllUsers.objects.filter(user_id=user_id).first()
-            if not user:
-                user = AllUsers.objects.filter(username=user_id).first()
-            if not user:
-                user = AllUsers.objects.filter(email=user_id).first()
-        if not user and self.request.user and self.request.user.is_authenticated:
-            user = AllUsers.objects.filter(username=self.request.user.username).first() or \
-                   AllUsers.objects.filter(email=self.request.user.email).first()
-        if not user and user_id:
-            user, _ = AllUsers.objects.get_or_create(
-                user_id=user_id,
-                defaults={
-                    "username": f"user_{str(user_id)[:15]}",
-                    "name": "SkilTrix Learner",
-                    "email": f"{user_id}@skiltrix.internal" if "@" not in str(user_id) else str(user_id),
-                    "user_type": "user",
-                    "status": "approved",
-                }
-            )
+        user = _get_authenticated_user(self.request)
         if not user:
-            user = AllUsers.objects.exclude(user_id="").first()
+            raise PermissionDenied("Sign in required to post in discussions.")
 
         disc_id = f"disc_{uuid.uuid4().hex[:10]}"
         serializer.save(discussion_id=disc_id, user=user)
 
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
     def reply(self, request, discussion_id=None):
         discussion = self.get_object()
-        user_id = request.data.get("user_id")
         content = (request.data.get("content") or "").strip()
         if not content:
             return Response({"error": "Content is required"}, status=status.HTTP_400_BAD_REQUEST)
-        user = None
-        if user_id:
-            user = AllUsers.objects.filter(user_id=user_id).first() or AllUsers.objects.filter(username=user_id).first()
-        if not user and request.user and request.user.is_authenticated:
-            user = AllUsers.objects.filter(username=request.user.username).first() or AllUsers.objects.filter(email=request.user.email).first()
+        user = _get_authenticated_user(request)
         if not user:
-            user = AllUsers.objects.first()
+            return Response({"status": False, "message": "Sign in required to reply."}, status=status.HTTP_401_UNAUTHORIZED)
         reply_id = f"rep_{uuid.uuid4().hex[:10]}"
         DiscussionReplies.objects.create(
             reply_id=reply_id,
@@ -680,17 +727,12 @@ class DiscussionsViewSet(viewsets.ModelViewSet):
         discussion.save(update_fields=["comments_count"])
         return Response({"status": "success", "reply_id": reply_id, "comments_count": discussion.comments_count})
 
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
     def like(self, request, discussion_id=None):
         discussion = self.get_object()
-        user_id = request.data.get("user_id")
-        user = None
-        if user_id:
-            user = AllUsers.objects.filter(user_id=user_id).first() or AllUsers.objects.filter(username=user_id).first()
-        if not user and request.user and request.user.is_authenticated:
-            user = AllUsers.objects.filter(username=request.user.username).first() or AllUsers.objects.filter(email=request.user.email).first()
+        user = _get_authenticated_user(request)
         if not user:
-            user = AllUsers.objects.first()
+            return Response({"status": False, "message": "Sign in required to like posts."}, status=status.HTTP_401_UNAUTHORIZED)
         existing = DiscussionLikes.objects.filter(discussion=discussion, user=user).first()
         if existing:
             existing.delete()
@@ -833,28 +875,27 @@ class DailyActivityViewSet(viewsets.ModelViewSet):
 # ==============================================================================
 
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def submit_code(request):
     """
     Submit code for a coding problem. Evaluates against test cases,
     creates CodeSubmissions record, and updates UserProblemStatus.
     """
-    user_id = request.data.get("user_id")
     problem_id = request.data.get("problem_id")
     language = request.data.get("language", "python")
     code = request.data.get("code", "")
 
-    if not all([user_id, problem_id, code]):
+    if not all([problem_id, code]):
         return Response(
-            {"status": False, "message": "user_id, problem_id, and code are required"},
+            {"status": False, "message": "problem_id and code are required"},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    user = AllUsers.objects.filter(user_id=user_id).first()
+    user = _get_authenticated_user(request)
     problem = CodingProblems.objects.filter(problem_id=problem_id).first()
 
     if not user:
-        return Response({"status": False, "message": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"status": False, "message": "Sign in required to submit code."}, status=status.HTTP_401_UNAUTHORIZED)
     if not problem:
         return Response({"status": False, "message": "Problem not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -1250,27 +1291,28 @@ def execute_compiler_code(request):
 
 
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def quiz_attempt(request):
     """
     Submit answers for a quiz attempt. Calculates score and creates QuizAttempts record.
     """
-    user_id = request.data.get("user_id")
     quiz_id = request.data.get("quiz_id")
     answers = request.data.get("answers", [])  # list of {question_id, selected_option_id}
     time_taken = request.data.get("time_taken_seconds", 0)
 
-    if not all([user_id, quiz_id]):
+    if not quiz_id:
         return Response(
-            {"status": False, "message": "user_id and quiz_id are required"},
+            {"status": False, "message": "quiz_id is required"},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    user = AllUsers.objects.filter(user_id=user_id).first()
+    user = _get_authenticated_user(request)
     quiz = Quizzes.objects.filter(quiz_id=quiz_id).first()
 
-    if not user or not quiz:
-        return Response({"status": False, "message": "User or Quiz not found"}, status=status.HTTP_404_NOT_FOUND)
+    if not user:
+        return Response({"status": False, "message": "Sign in required to submit quiz."}, status=status.HTTP_401_UNAUTHORIZED)
+    if not quiz:
+        return Response({"status": False, "message": "Quiz not found"}, status=status.HTTP_404_NOT_FOUND)
 
     questions = QuizQuestions.objects.filter(quiz=quiz).prefetch_related("options")
     total_q = questions.count()
@@ -1337,28 +1379,29 @@ def quiz_attempt(request):
 
 
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def apply_internship(request):
     """
     Apply for an internship position.
     """
-    user_id = request.data.get("user_id")
     internship_id = request.data.get("internship_id")
     cover_letter = request.data.get("cover_letter", "")
     portfolio_url = request.data.get("portfolio_url", "")
     resume_id = request.data.get("resume_id")
 
-    if not all([user_id, internship_id]):
+    if not internship_id:
         return Response(
-            {"status": False, "message": "user_id and internship_id are required"},
+            {"status": False, "message": "internship_id is required"},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    user = AllUsers.objects.filter(user_id=user_id).first()
+    user = _get_authenticated_user(request)
     internship_obj = Internship.objects.filter(internship_id=internship_id).first()
 
-    if not user or not internship_obj:
-        return Response({"status": False, "message": "User or Internship not found"}, status=status.HTTP_404_NOT_FOUND)
+    if not user:
+        return Response({"status": False, "message": "Sign in required to apply."}, status=status.HTTP_401_UNAUTHORIZED)
+    if not internship_obj:
+        return Response({"status": False, "message": "Internship not found"}, status=status.HTTP_404_NOT_FOUND)
 
     resume = Resumes.objects.filter(resume_id=resume_id).first() if resume_id else None
 
@@ -1436,16 +1479,12 @@ def user_progress(request):
 
 
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def mark_notifications_read(request):
     """
-    Mark all unread notifications for a user as read.
+    Mark all unread notifications for the authenticated user as read.
     """
-    user_id = request.data.get("user_id")
-    if not user_id:
-        return Response({"status": False, "message": "user_id is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-    updated_count = Notifications.objects.filter(user_id=user_id, read=False).update(read=True)
+    updated_count = Notifications.objects.filter(user_id=request.user.user_id, read=False).update(read=True)
     return Response({
         "status": True,
         "message": f"{updated_count} notification(s) marked as read",
@@ -1454,7 +1493,7 @@ def mark_notifications_read(request):
 
 
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def enroll_course(request):
     """
     Enrolls candidate in course.
@@ -1462,11 +1501,8 @@ def enroll_course(request):
     - Paid course (is_paid and price > 0): creates Razorpay Order with configured Razorpay account,
       returning order_id, key_id, amount_paise for checkout modal popup.
     """
-    user_id = request.data.get("user_id")
     course_id = request.data.get("course_id")
-    user = request.user if request.user and request.user.is_authenticated else None
-    if not user and user_id:
-        user = AllUsers.objects.filter(user_id=user_id).first()
+    user = _get_authenticated_user(request)
 
     course = Courses.objects.filter(course_id=course_id, status="active").first() if course_id else None
     if not user:
@@ -1559,7 +1595,7 @@ def enroll_course(request):
 
 
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def verify_enrollment_payment(request):
     """
     Verifies Razorpay payment signature for course enrollment.
@@ -1568,7 +1604,6 @@ def verify_enrollment_payment(request):
     razorpay_order_id = request.data.get("razorpay_order_id")
     razorpay_payment_id = request.data.get("razorpay_payment_id")
     razorpay_signature = request.data.get("razorpay_signature")
-    user_id = request.data.get("user_id")
     course_id = request.data.get("course_id")
 
     if not razorpay_order_id or not razorpay_payment_id or not razorpay_signature:
@@ -1577,9 +1612,9 @@ def verify_enrollment_payment(request):
             "message": "Missing Razorpay verification parameters (order_id, payment_id, signature required)."
         }, status=status.HTTP_400_BAD_REQUEST)
 
-    user = request.user if request.user and request.user.is_authenticated else None
-    if not user and user_id:
-        user = AllUsers.objects.filter(user_id=user_id).first()
+    user = _get_authenticated_user(request)
+    if not user:
+        return Response({"status": False, "message": "Authentication required."}, status=status.HTTP_401_UNAUTHORIZED)
 
     course = Courses.objects.filter(course_id=course_id).first() if course_id else None
 
@@ -1589,6 +1624,8 @@ def verify_enrollment_payment(request):
             "status": False,
             "message": "Payment order record not found for this Razorpay order."
         }, status=status.HTTP_404_NOT_FOUND)
+    if order.user_id != user.user_id and not getattr(user, "is_staff", False):
+        return Response({"status": False, "message": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
     if not user:
         user = order.user
@@ -1646,12 +1683,14 @@ def verify_enrollment_payment(request):
 
 
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def cancel_enrollment_payment(request):
     order_id = request.data.get("order_id") or request.data.get("razorpay_order_id")
     if not order_id:
         return Response({"status": False, "message": "order_id is required"}, status=status.HTTP_400_BAD_REQUEST)
     order = CoursePaymentOrder.objects.filter(razorpay_order_id=order_id).first()
+    if order and order.user_id != request.user.user_id and not getattr(request.user, "is_staff", False):
+        return Response({"status": False, "message": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
     if order and order.status == "pending":
         order.status = "cancelled"
         order.failure_reason = request.data.get("reason", "Checkout dismissed by candidate")
@@ -1676,6 +1715,7 @@ def get_razorpay_config(request):
 
 class CodingAssessmentViewSet(viewsets.ModelViewSet):
     lookup_field = "assessment_id"
+    permission_classes = [IsAuthenticatedOrReadOnly]
 
     def get_object(self):
         lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
@@ -1814,34 +1854,22 @@ class CompanyBlueprintViewSet(viewsets.ModelViewSet):
 
 
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def start_assessment(request):
     """
     Start or resume an assessment attempt. Enforces server-side timer & autosave state.
+    Requires authenticated user (never auto-creates guest accounts).
     """
-    user_id = request.data.get("user_id")
+    user = _get_authenticated_user(request)
     assessment_id = request.data.get("assessment_id")
 
-    user = AllUsers.objects.filter(user_id=user_id).first()
-    if not user and user_id:
-        user, _ = AllUsers.objects.get_or_create(
-            user_id=user_id,
-            defaults={
-                "username": f"user_{str(user_id)[:15]}",
-                "email": f"{str(user_id)[:15]}@skiltrix.org",
-                "name": "Assessment Candidate",
-                "platform": "web",
-                "platform_name": "skiltrix",
-                "type": "student",
-            }
-        )
+    if not user:
+        return Response({"status": False, "message": "Please sign in to start this assessment."}, status=status.HTTP_401_UNAUTHORIZED)
 
     assessment = CodingAssessment.objects.filter(assessment_id=assessment_id, active=True).prefetch_related(
         "sections", "question_items__problem", "questions__problem"
     ).first()
 
-    if not user:
-        return Response({"status": False, "message": "Valid user_id is required"}, status=status.HTTP_400_BAD_REQUEST)
     if not assessment:
         return Response({"status": False, "message": "Assessment not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -1944,19 +1972,21 @@ def start_assessment(request):
 
 
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def record_assessment_event(request):
     """
     Records browser integrity signals (TAB_SWITCH, FULLSCREEN_EXIT, SCREEN_SHARE_STOPPED, etc.)
     Updates neutral integrity metrics and enforces auto-submit policies without privacy violations.
     """
     attempt_id = request.data.get("attempt_id")
-    event_type = request.data.get("event_type")
+    event_type = str(request.data.get("event_type") or "").strip().upper()
     metadata = request.data.get("metadata", {})
 
     attempt = AssessmentAttempt.objects.filter(attempt_id=attempt_id).select_related("assessment", "user").first()
     if not attempt:
         return Response({"status": False, "message": "Attempt not found"}, status=status.HTTP_404_NOT_FOUND)
+    if attempt.user_id != request.user.user_id and not getattr(request.user, "is_staff", False):
+        return Response({"status": False, "message": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
     event_id = f"evt_{uuid.uuid4().hex[:12]}"
     AssessmentEvent.objects.create(
@@ -2006,7 +2036,7 @@ def record_assessment_event(request):
 
 
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def autosave_assessment_draft(request):
     """
     Periodically autosaves candidate responses (selected MCQ answers, code drafts, section).
@@ -2023,6 +2053,8 @@ def autosave_assessment_draft(request):
     attempt = AssessmentAttempt.objects.filter(attempt_id=attempt_id).first()
     if not attempt or attempt.status != "in_progress":
         return Response({"status": False, "message": "Active assessment attempt not found"}, status=status.HTTP_404_NOT_FOUND)
+    if attempt.user_id != request.user.user_id and not getattr(request.user, "is_staff", False):
+        return Response({"status": False, "message": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
     from django.utils import timezone
     if timezone.now() >= attempt.expires_at:
@@ -2056,7 +2088,7 @@ def autosave_assessment_draft(request):
 
 
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def submit_assessment(request):
     """
     Final submission of an assessment. Evaluates both:
@@ -2071,6 +2103,8 @@ def submit_assessment(request):
     attempt = AssessmentAttempt.objects.filter(attempt_id=attempt_id).select_related("assessment", "user").first()
     if not attempt:
         return Response({"status": False, "message": "Attempt not found"}, status=status.HTTP_404_NOT_FOUND)
+    if attempt.user_id != request.user.user_id and not getattr(request.user, "is_staff", False):
+        return Response({"status": False, "message": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
     from django.utils import timezone
     now = timezone.now()
@@ -2220,7 +2254,7 @@ def submit_assessment(request):
 
     # 2. EVALUATE DIRECT ASSESSMENT QUESTIONS (FOR BACKWARD COMPATIBILITY & CODING ONLY)
     direct_questions = AssessmentQuestion.objects.filter(assessment=assessment).select_related("problem").order_by("order")
-    if direct_questions.exists() and not question_items.exists():
+    if direct_questions.exists() and not question_items:
         sec_title = "Coding Round"
         section_scores[sec_title] = {"earned": 0.0, "total": 0.0}
 
@@ -2418,16 +2452,35 @@ def company_preparation_stats(request):
         last_attempt = user_qs.order_by("-started_at").values_list("started_at", flat=True).first() if user_qs.exists() else None
 
         asmt = CodingAssessment.objects.filter(company_tag__icontains=pattern["tag"], active=True).first()
+        aid = asmt.assessment_id if asmt else f"asmt_{pattern['slug'].replace('-', '_')}"
+        sections_summary = (
+            [
+                {
+                    "title": s.title,
+                    "section_type": s.section_type,
+                    "duration_minutes": s.duration_minutes,
+                }
+                for s in asmt.sections.all().order_by("order")
+            ]
+            if asmt
+            else [{"title": topic, "section_type": "Mixed", "duration_minutes": 30} for topic in pattern["topics"][:2]]
+        )
 
         cards.append({
+            "blueprint_id": aid,
             "tag": pattern["tag"],
             "name": pattern["name"],
+            "company_name": pattern["name"],
+            "description": asmt.description if asmt else f"Timed simulation covering {', '.join(pattern['topics'])}.",
+            "duration_minutes": asmt.duration_minutes if asmt else 90,
             "slug": pattern["slug"],
             "tier": pattern["tier"],
-            "assessment_id": asmt.assessment_id if asmt else f"asmt_{pattern['slug'].replace('-', '_')}",
+            "assessment_id": aid,
             "recommended_topics": pattern["topics"],
+            "sections_summary": sections_summary,
             "attempts": attempts_count,
-            "best_score": best_score,
+            "total_attempts": attempts_count,
+            "best_score": best_score or 0,
             "average_score": avg_score,
             "last_attempt": last_attempt,
         })
@@ -2435,6 +2488,7 @@ def company_preparation_stats(request):
     return Response({
         "status": True,
         "company_mocks": cards,
+        "blueprints": cards,
     })
 
 
@@ -2472,7 +2526,7 @@ def get_problem_explanation(request, problem_id):
 
 
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def upload_cdn_asset(request):
     """
     Direct upload endpoint for media files to Cloudflare R2 / CDN.

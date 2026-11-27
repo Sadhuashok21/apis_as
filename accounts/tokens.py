@@ -1,11 +1,23 @@
 import base64
 import hashlib
 import json
+import logging
 import secrets
 from datetime import timedelta
+import requests
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import padding
 from django.conf import settings
 from django.core import signing
+from django.core.cache import cache
 from django.utils import timezone
+
+
+logger = logging.getLogger(__name__)
+SKILTRIX_FIREBASE_PROJECT_ID = getattr(settings, "SKILTRIX_FIREBASE_PROJECT_ID", "skiltrix")
+FIREBASE_CERTS_URL = "https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com"
+FIREBASE_CERTS_CACHE_KEY = "skiltrix_firebase_x509_certs"
 
 
 SSO_TOKEN_SALT = "accounts.sso.v1"
@@ -64,3 +76,74 @@ def verify_sso_access_token(token: str, max_age: int = SSO_TOKEN_MAX_AGE_SECONDS
     Raises signing.BadSignature or signing.SignatureExpired if invalid.
     """
     return signing.TimestampSigner(salt=SSO_TOKEN_SALT).unsign_object(token, max_age=max_age)
+
+
+def _decode_jwt_segment(segment: str) -> bytes:
+    rem = len(segment) % 4
+    if rem:
+        segment += "=" * (4 - rem)
+    return base64.urlsafe_b64decode(segment.encode("ascii"))
+
+
+def _get_firebase_public_certs() -> dict | None:
+    cached = cache.get(FIREBASE_CERTS_CACHE_KEY)
+    if isinstance(cached, dict) and cached:
+        return cached
+    try:
+        resp = requests.get(FIREBASE_CERTS_URL, timeout=3)
+        if resp.status_code == 200:
+            certs = resp.json()
+            if isinstance(certs, dict) and certs:
+                cache.set(FIREBASE_CERTS_CACHE_KEY, certs, timeout=3600)
+                return certs
+    except requests.RequestException as exc:
+        logger.warning("Unable to fetch Firebase public certificates: %s", exc)
+    return None
+
+
+def verify_skiltrix_firebase_id_token(id_token: str) -> dict:
+    """
+    Verify that a Firebase ID token was issued for the SkilTrix Firebase project
+    (and reject legacy SFS Firebase tokens or expired/tampered tokens).
+    """
+    parts = (id_token or "").split(".")
+    if len(parts) != 3:
+        raise ValueError("Invalid Firebase ID token format.")
+
+    try:
+        header = json.loads(_decode_jwt_segment(parts[0]).decode("utf-8"))
+        payload = json.loads(_decode_jwt_segment(parts[1]).decode("utf-8"))
+        signature = _decode_jwt_segment(parts[2])
+    except Exception as exc:
+        raise ValueError("Malformed Firebase ID token.") from exc
+
+    expected_iss = f"https://securetoken.google.com/{SKILTRIX_FIREBASE_PROJECT_ID}"
+    aud = str(payload.get("aud") or "").strip()
+    iss = str(payload.get("iss") or "").strip()
+    if aud != SKILTRIX_FIREBASE_PROJECT_ID or iss != expected_iss:
+        raise ValueError(
+            f"Only SkilTrix Firebase authentication ({SKILTRIX_FIREBASE_PROJECT_ID}) is supported."
+        )
+
+    now_ts = int(timezone.now().timestamp())
+    exp = int(payload.get("exp") or 0)
+    if exp + 300 < now_ts:
+        raise ValueError("Firebase ID token has expired. Please sign in again.")
+
+    if not payload.get("sub"):
+        raise ValueError("Firebase ID token is missing subject identifier.")
+
+    certs = _get_firebase_public_certs()
+    if certs:
+        kid = header.get("kid")
+        pem = certs.get(kid) if kid else None
+        if not pem:
+            raise ValueError("Unrecognized Firebase token signing key.")
+        try:
+            cert = x509.load_pem_x509_certificate(pem.encode("utf-8"))
+            signing_input = f"{parts[0]}.{parts[1]}".encode("ascii")
+            cert.public_key().verify(signature, signing_input, padding.PKCS1v15(), hashes.SHA256())
+        except Exception as exc:
+            raise ValueError("Firebase ID token signature verification failed.") from exc
+
+    return payload

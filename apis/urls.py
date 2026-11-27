@@ -26,6 +26,7 @@ from django.conf.urls.static import static
 
 from cms.views import generate_sitemap_xml, generate_robots_txt
 
+
 ADS_TXT_CONTENT = "google.com, pub-8687126461256058, DIRECT, f08c47fec0942fa0\n"
 
 urlpatterns = [
@@ -91,6 +92,11 @@ urlpatterns = [
     path('signup/check_signin', views.check_signin, name="check_signin"),
     path('fcm', views.device_fcm, name="fcm"),
     path('attach_user_id/', views.attach_user_id, name="attach_user_id"),
+
+
+    path('api/asai/', include("asai.urls")),
+    path('asai/', include("asai.urls")),
+    path('transport/', include('transporthub.urls')),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 

@@ -57,7 +57,7 @@ def get_st_image_url(filename: str) -> str:
     """Return full CDN URL for a SkilTrix image."""
     if not filename:
         return ""
-    if filename.startswith("http://") or filename.startswith("https://"):
+    if filename.startswith(("http://", "https://", "/media/", "/assets/", "data:")):
         return filename
     clean_name = filename.lstrip("/")
     if clean_name.startswith("st/images/"):

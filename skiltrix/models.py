@@ -3,6 +3,11 @@ from sfs.models import AllUsers
 import uuid
 
 
+def default_supported_coding_languages():
+    """Default supported programming languages for coding problems and assessments."""
+    return ["python", "java", "c", "cpp", "javascript"]
+
+
 class CompilerCoupon(models.Model):
     """Admin-managed discounts for compiler purchases."""
     PERCENT = "percent"
@@ -156,6 +161,8 @@ class Courses(models.Model):
     type = models.CharField(max_length=30, default="beginner")
     is_paid = models.BooleanField(default=0)
     price = models.FloatField(default=0)
+    compare_price = models.FloatField(default=0)
+    discount_percent = models.FloatField(default=0)
     course_id = models.CharField(max_length=50, unique=True)
     user = models.ForeignKey(
         AllUsers,
@@ -196,6 +203,11 @@ class Videos(models.Model):
     )
     video_id =  models.CharField(max_length=50, unique=True)
     duration_seconds = models.IntegerField(default=0)
+    chapters = models.JSONField(default=list, blank=True)
+    transcript = models.JSONField(default=list, blank=True)
+    lesson_notes = models.TextField(blank=True, default="")
+    code_snippet = models.TextField(blank=True, default="")
+    code_language = models.CharField(max_length=30, blank=True, default="python")
     status = models.CharField(max_length=20, default="active")
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -224,6 +236,13 @@ class Comments(models.Model):
             related_name="comment_user_id"
     
         )
+    parent = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="replies",
+    )
     created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
 
     class Meta: 
@@ -524,6 +543,7 @@ class CodingProblems(models.Model):
     QUESTION_TYPES = (
         ("algorithmic", "Algorithmic Problem"),
         ("debugging", "Backend & Code Debugging"),
+        ("django_debug", "Django Project Debugging"),
         ("sql", "SQL Query Assessment"),
     )
 
@@ -549,6 +569,12 @@ class CodingProblems(models.Model):
     # Limits
     time_limit_seconds = models.FloatField(default=3.0)
     memory_limit_mb = models.IntegerField(default=128)
+    supported_languages = models.JSONField(default=default_supported_coding_languages, blank=True)
+
+    # Explicit sample example summary fields (in addition to TestCases sample rows)
+    sample_input = models.TextField(blank=True, default="")
+    sample_output = models.TextField(blank=True, default="")
+    sample_explanation = models.TextField(blank=True, default="")
 
     # Starter code templates per programming language
     starter_python = models.TextField(blank=True)
@@ -557,6 +583,8 @@ class CodingProblems(models.Model):
     starter_c = models.TextField(blank=True)
     starter_javascript = models.TextField(blank=True)
     starter_sql = models.TextField(blank=True)
+    project_files = models.JSONField(default=dict, blank=True, help_text="Starter multi-file workspace {rel_path: content} for Django debugging problems")
+    hidden_test_files = models.JSONField(default=dict, blank=True, help_text="Hidden grading test files {rel_path: content} overlaid on submit")
     solution_code = models.TextField(blank=True)
     explanation = models.TextField(blank=True, default="", help_text="Post-submission educational explanation & optimal complexity breakdown")
     hints = models.JSONField(default=list, blank=True)
@@ -564,6 +592,7 @@ class CodingProblems(models.Model):
     solved_count = models.IntegerField(default=0)
     total_attempts = models.IntegerField(default=0)
     status = models.CharField(max_length=20, default="active")
+    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -614,10 +643,11 @@ class TestCases(models.Model):
 
 class CodingAssessment(models.Model):
     CATEGORY_CHOICES = (
-        ("Company Mocks", "Company Mocks"),
-        ("Coding Assessments", "Coding Assessments"),
-        ("Aptitude Assessments", "Aptitude Assessments"),
+        ("MCQ Assessments", "MCQ Assessments"),
         ("Technical Assessments", "Technical Assessments"),
+        ("Coding Assessments", "Coding Assessments"),
+        ("Company Mocks", "Company Mocks"),
+        ("Aptitude Assessments", "Aptitude Assessments"),
         ("Debugging Assessments", "Debugging Assessments"),
         ("SQL Assessments", "SQL Assessments"),
         ("Backend Assessments", "Backend Assessments"),
@@ -626,17 +656,39 @@ class CodingAssessment(models.Model):
         ("Mixed Placement Assessments", "Mixed Placement Assessments"),
     )
 
+    ASSESSMENT_TYPES = (
+        ("mcq", "MCQ Assessment"),
+        ("technical", "Technical Assessment"),
+        ("coding", "Coding Assessment"),
+        ("company", "Company-Specific Assessment"),
+    )
+
+    ASSIGNMENT_MODES = (
+        ("public", "Open / Public"),
+        ("assigned", "Assigned Students / Batches"),
+    )
+
     assessment_id = models.CharField(max_length=50, unique=True)
     title = models.CharField(max_length=255)
     slug = models.SlugField(max_length=255, unique=True)
+    assessment_type = models.CharField(max_length=30, choices=ASSESSMENT_TYPES, default="company")
     category = models.CharField(max_length=50, choices=CATEGORY_CHOICES, default="Company Mocks")
     company_tag = models.CharField(max_length=60, default="General SDE", help_text="e.g. Amazon-style, Deloitte-style, TCS-style")
     description = models.TextField()
+    instructions = models.TextField(blank=True, default="", help_text="Pre-test assessment instructions shown before starting timer")
     difficulty = models.CharField(max_length=20, default="Medium", choices=[("Easy", "Easy"), ("Medium", "Medium"), ("Hard", "Hard")])
     duration_minutes = models.IntegerField(default=90, help_text="Total assessment countdown time in minutes")
     pass_percentage = models.IntegerField(default=70)
     total_marks = models.FloatField(default=100.0)
+    negative_marking = models.BooleanField(default=False)
     negative_marking_percentage = models.FloatField(default=0.0, help_text="Penalty ratio for incorrect MCQ/Aptitude answers e.g. 0.25")
+    supported_languages = models.JSONField(default=default_supported_coding_languages, blank=True)
+
+    # Scheduling & Access Window
+    start_time = models.DateTimeField(null=True, blank=True)
+    end_time = models.DateTimeField(null=True, blank=True)
+    assignment_mode = models.CharField(max_length=20, choices=ASSIGNMENT_MODES, default="public")
+    show_results_immediately = models.BooleanField(default=True)
 
     # Company Mock & Proctoring Configuration
     is_company_mock = models.BooleanField(default=True)
@@ -1013,11 +1065,21 @@ class AssessmentAttempt(models.Model):
     selected_answers = models.JSONField(default=dict, blank=True)
     # Saved code drafts per problem for backward compatibility
     saved_drafts = models.JSONField(default=dict, blank=True)
+    # Per-question status tracking: { item_id: "not_visited" | "not_attempted" | "attempted" | "marked_for_review" | "submitted" }
+    question_states = models.JSONField(default=dict, blank=True)
     # Specific randomized question assignment for this candidate session
     assigned_question_ids = models.JSONField(default=list, blank=True)
 
     current_section = models.CharField(max_length=100, blank=True, default="")
     current_question_index = models.IntegerField(default=0)
+
+    # Result analytics summary
+    results_released = models.BooleanField(default=True)
+    problems_attempted = models.IntegerField(default=0)
+    problems_solved = models.IntegerField(default=0)
+    test_cases_passed = models.IntegerField(default=0)
+    test_cases_total = models.IntegerField(default=0)
+    time_taken_seconds = models.IntegerField(default=0)
 
     # Integrity & Proctoring Telemetry
     integrity_score = models.FloatField(default=100.0)
@@ -1111,10 +1173,12 @@ class CompanyBlueprint(models.Model):
 class CodeSubmissions(models.Model):
     STATUS_CHOICES = (
         ("Accepted", "Accepted"),
+        ("Partial Accepted", "Partial Accepted"),
         ("Wrong Answer", "Wrong Answer"),
         ("Time Limit Exceeded", "Time Limit Exceeded"),
         ("Memory Limit Exceeded", "Memory Limit Exceeded"),
         ("Runtime Error", "Runtime Error"),
+        ("Compilation Error", "Compilation Error"),
         ("Compile Error", "Compile Error"),
         ("Pending", "Pending"),
     )
@@ -1134,6 +1198,24 @@ class CodeSubmissions(models.Model):
         on_delete=models.CASCADE,
         related_name="submissions"
     )
+    assessment = models.ForeignKey(
+        CodingAssessment,
+        db_column="assessment_id",
+        to_field="assessment_id",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="coding_submissions"
+    )
+    attempt = models.ForeignKey(
+        AssessmentAttempt,
+        db_column="attempt_id",
+        to_field="attempt_id",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="coding_submissions"
+    )
     language = models.CharField(max_length=20)
     code = models.TextField()
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default="Pending")
@@ -1143,6 +1225,8 @@ class CodeSubmissions(models.Model):
     memory_kb = models.FloatField(default=0.0)
     error_message = models.TextField(null=True, blank=True)
     score = models.IntegerField(default=0)
+    max_score = models.IntegerField(default=100)
+    is_final_submission = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -1154,6 +1238,88 @@ class CodeSubmissions(models.Model):
         ordering = ["-created_at"]
         verbose_name = "Submission"
         verbose_name_plural = "Submissions"
+
+
+class StudentBatch(models.Model):
+    batch_id = models.CharField(max_length=50, unique=True)
+    name = models.CharField(max_length=150)
+    description = models.TextField(blank=True, default="")
+    course = models.ForeignKey(
+        Courses,
+        db_column="course_id",
+        to_field="course_id",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="student_batches"
+    )
+    students = models.ManyToManyField(
+        AllUsers,
+        blank=True,
+        related_name="skiltrix_batches"
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = True
+        db_table = "st_student_batches"
+        ordering = ["-created_at"]
+        verbose_name = "Student Batch"
+        verbose_name_plural = "Student Batches"
+
+    def __str__(self):
+        return self.name
+
+
+class AssessmentAssignment(models.Model):
+    assignment_id = models.CharField(max_length=50, unique=True)
+    assessment = models.ForeignKey(
+        CodingAssessment,
+        db_column="assessment_id",
+        to_field="assessment_id",
+        on_delete=models.CASCADE,
+        related_name="assignments"
+    )
+    student = models.ForeignKey(
+        AllUsers,
+        db_column="user_id",
+        to_field="user_id",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="assessment_assignments"
+    )
+    batch = models.ForeignKey(
+        StudentBatch,
+        db_column="batch_id",
+        to_field="batch_id",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="assessment_assignments"
+    )
+    start_time = models.DateTimeField(null=True, blank=True)
+    end_time = models.DateTimeField(null=True, blank=True)
+    assigned_by = models.ForeignKey(
+        AllUsers,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="created_assessment_assignments"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = True
+        db_table = "st_assessment_assignments"
+        ordering = ["-created_at"]
+        verbose_name = "Assessment Assignment"
+        verbose_name_plural = "Assessment Assignments"
+
+    def __str__(self):
+        target = self.student.username if self.student else (self.batch.name if self.batch else "Unassigned")
+        return f"{self.assessment.title} -> {target}"
 
 
 class UserProblemStatus(models.Model):
@@ -1189,6 +1355,11 @@ class UserProblemStatus(models.Model):
         managed = True
         db_table = "st_user_problem_status"
         unique_together = ("user", "problem")
+
+    def save(self, *args, **kwargs):
+        if not self.status_id:
+            self.status_id = f"ups_{uuid.uuid4().hex[:10]}"
+        super().save(*args, **kwargs)
 
 
 class CompilerSnippets(models.Model):
@@ -1656,6 +1827,7 @@ class CourseEnrollments(models.Model):
         related_name="enrollments"
     )
     progress_percent = models.IntegerField(default=0)
+    completed_videos = models.JSONField(default=list, blank=True)
     is_completed = models.BooleanField(default=False)
     enrolled_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
@@ -1984,6 +2156,7 @@ from .tutorial_models import (
 # CAREER LEARNING ROADMAPS (MATCHING ANDROID SKILTRIX)
 # ==============================================================================
 from .roadmap_models import (
+    LearningRoadmap,
     LearningRoadmapProgress,
 )
 

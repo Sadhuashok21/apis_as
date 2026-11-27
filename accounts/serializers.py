@@ -52,6 +52,7 @@ class SignupSerializer(serializers.Serializer):
     platform = serializers.CharField(max_length=20, required=False, default="web")
     platform_name = serializers.CharField(max_length=50, required=False, default="ascentracore")
     type = serializers.CharField(max_length=20, required=False, default="user")
+    client_id = serializers.CharField(max_length=64, required=False, allow_blank=True, default="")
 
     def validate_email(self, value):
         norm = value.strip().lower()

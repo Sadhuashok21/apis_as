@@ -166,7 +166,7 @@ class AssessmentTestCasePublicSerializer(serializers.ModelSerializer):
 
 
 class AssessmentQuestionItemCandidateSerializer(serializers.ModelSerializer):
-    problem = CodingProblemListSerializer(read_only=True)
+    problem = CodingProblemDetailSerializer(read_only=True)
     public_test_cases = serializers.SerializerMethodField()
     options = serializers.SerializerMethodField()
 
@@ -232,7 +232,7 @@ class AssessmentQuestionItemFullSerializer(serializers.ModelSerializer):
 
 
 class AssessmentQuestionSerializer(serializers.ModelSerializer):
-    problem = CodingProblemListSerializer(read_only=True)
+    problem = CodingProblemDetailSerializer(read_only=True)
 
     class Meta:
         model = AssessmentQuestion
@@ -532,14 +532,42 @@ class CommentSerializer(serializers.ModelSerializer):
     user_name = serializers.ReadOnlyField(source="user.name")
     video_id = serializers.CharField(source="video.video_id", read_only=True)
     video_title = serializers.ReadOnlyField(source="video.title")
+    parent_id = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Comments
-        fields = ["id", "comment", "video", "video_id", "video_title", "user", "user_name", "created_at"]
+        fields = [
+            "id",
+            "comment",
+            "video",
+            "video_id",
+            "video_title",
+            "user",
+            "user_name",
+            "parent",
+            "parent_id",
+            "created_at",
+        ]
         extra_kwargs = {
             "video": {"required": False},
-            "user": {"required": False}
+            "user": {"required": False},
+            "parent": {"required": False, "allow_null": True},
         }
+
+def _user_has_course_access(request, course) -> bool:
+    """Return True if the course is free or the authenticated requester is enrolled or admin."""
+    if not course or not (getattr(course, "is_paid", False) and (getattr(course, "price", 0) or 0) > 0):
+        return True
+    if not request:
+        return False
+    user = getattr(request, "user", None)
+    if not user or not getattr(user, "is_authenticated", False):
+        return False
+    if getattr(user, "is_staff", False) or getattr(user, "user_type", "") == "admin":
+        return True
+    from .models import CourseEnrollments
+    return CourseEnrollments.objects.filter(user=user, course=course).exists()
+
 
 class VideoDetailSerializer(serializers.ModelSerializer):
     subtitles = VideoSubtitleSerializer(many=True, read_only=True)
@@ -547,6 +575,9 @@ class VideoDetailSerializer(serializers.ModelSerializer):
     comments_count = serializers.SerializerMethodField()
     course_id = serializers.CharField(write_only=True, required=False, allow_null=True, allow_blank=True)
     course_name = serializers.ReadOnlyField(source="course.name")
+    course_is_paid = serializers.SerializerMethodField()
+    course_price = serializers.SerializerMethodField()
+    is_locked = serializers.SerializerMethodField()
     instructor = serializers.SerializerMethodField()
     video_url = serializers.SerializerMethodField()
     image_url = serializers.SerializerMethodField()
@@ -557,7 +588,9 @@ class VideoDetailSerializer(serializers.ModelSerializer):
         fields = [
             "video_id", "title", "description", "video", "image",
             "video_url", "image_url", "duration_seconds", "duration",
-            "like", "share", "views", "course", "course_id", "course_name", "instructor",
+            "chapters", "transcript", "lesson_notes", "code_snippet", "code_language",
+            "like", "share", "views", "course", "course_id", "course_name",
+            "course_is_paid", "course_price", "is_locked", "instructor",
             "subtitles", "comments", "comments_count", "created_at"
         ]
         extra_kwargs = {
@@ -566,8 +599,71 @@ class VideoDetailSerializer(serializers.ModelSerializer):
             "image": {"required": False, "allow_blank": True},
             "description": {"required": False, "allow_blank": True},
             "course": {"required": False, "allow_null": True},
-            "duration_seconds": {"required": False}
+            "duration_seconds": {"required": False},
+            "chapters": {"required": False},
+            "transcript": {"required": False},
+            "lesson_notes": {"required": False, "allow_blank": True},
+            "code_snippet": {"required": False, "allow_blank": True},
+            "code_language": {"required": False, "allow_blank": True},
         }
+
+    def validate_transcript(self, value):
+        if value is None or value == "":
+            return []
+        if not isinstance(value, list):
+            raise serializers.ValidationError("Transcript must be a list of {start, end, text} items.")
+        cleaned = []
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get("text") or "").strip()
+            if not text:
+                continue
+            start = max(0, int(item.get("start") or 0))
+            end = max(start, int(item.get("end") or start))
+            cleaned.append({"start": start, "end": end, "text": text})
+        cleaned.sort(key=lambda c: c["start"])
+        return cleaned
+
+    def validate_chapters(self, value):
+        if value is None or value == "":
+            return []
+        if not isinstance(value, list):
+            raise serializers.ValidationError("Chapters must be a list of {time, title} items.")
+        cleaned = []
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title") or "").strip()
+            if not title:
+                continue
+            raw_time = item.get("time", 0)
+            seconds = 0
+            if isinstance(raw_time, (int, float)):
+                seconds = max(0, int(raw_time))
+            elif isinstance(raw_time, str):
+                parts = raw_time.strip().split(":")
+                try:
+                    if len(parts) == 2:
+                        seconds = max(0, int(parts[0]) * 60 + int(parts[1]))
+                    elif len(parts) == 3:
+                        seconds = max(0, int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2]))
+                    else:
+                        seconds = max(0, int(float(raw_time)))
+                except (TypeError, ValueError):
+                    seconds = 0
+            cleaned.append({"time": seconds, "title": title})
+        cleaned.sort(key=lambda c: c["time"])
+        return cleaned
+
+    def get_course_is_paid(self, obj):
+        return bool(obj.course and obj.course.is_paid and (obj.course.price or 0) > 0)
+
+    def get_course_price(self, obj):
+        return float(obj.course.price or 0) if obj.course else 0.0
+
+    def get_is_locked(self, obj):
+        return not _user_has_course_access(self.context.get("request"), obj.course)
 
     def get_duration(self, obj):
         sec = getattr(obj, "duration_seconds", 0) or 0
@@ -581,6 +677,8 @@ class VideoDetailSerializer(serializers.ModelSerializer):
         return "Sadhu Ashok Kumar"
 
     def get_video_url(self, obj):
+        if self.get_is_locked(obj):
+            return ""
         from apis.cdn_utils import get_st_video_url
         return get_st_video_url(obj.video)
 
@@ -590,6 +688,13 @@ class VideoDetailSerializer(serializers.ModelSerializer):
 
     def get_comments_count(self, obj):
         return obj.comment_video_id.count()
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if data.get("is_locked"):
+            data["video"] = ""
+            data["video_url"] = ""
+        return data
 
 
 class CourseDetailSerializer(serializers.ModelSerializer):
@@ -602,14 +707,39 @@ class CourseDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Courses
         fields = [
-            "course_id", "name", "image", "image_url", "type", "is_paid", "price",
+            "course_id", "name", "image", "image_url", "type", "is_paid",
+            "price", "compare_price", "discount_percent",
             "status", "created_at", "modules", "videos", "students_count", "rating"
         ]
         extra_kwargs = {
             "course_id": {"required": False},
             "image": {"required": False, "allow_blank": True},
-            "price": {"required": False}
+            "price": {"required": False},
+            "compare_price": {"required": False},
+            "discount_percent": {"required": False},
         }
+
+    def validate(self, attrs):
+        is_paid = attrs.get("is_paid", getattr(self.instance, "is_paid", False))
+        if not is_paid:
+            attrs["price"] = 0
+            attrs["compare_price"] = 0
+            attrs["discount_percent"] = 0
+            return attrs
+
+        price = max(0.0, float(attrs.get("price", getattr(self.instance, "price", 0)) or 0))
+        compare_price = max(0.0, float(attrs.get("compare_price", getattr(self.instance, "compare_price", 0)) or 0))
+        discount = max(0.0, min(100.0, float(attrs.get("discount_percent", getattr(self.instance, "discount_percent", 0)) or 0)))
+
+        if compare_price > price > 0 and ("discount_percent" not in attrs or not attrs["discount_percent"]):
+            discount = round(((compare_price - price) / compare_price) * 100, 1)
+        elif compare_price > 0 and compare_price <= price:
+            discount = 0.0
+
+        attrs["price"] = price
+        attrs["compare_price"] = compare_price
+        attrs["discount_percent"] = discount
+        return attrs
 
     def get_image_url(self, obj):
         from apis.cdn_utils import get_st_image_url
@@ -627,6 +757,7 @@ class CourseDetailSerializer(serializers.ModelSerializer):
 
     def get_videos(self, obj):
         from apis.cdn_utils import get_st_video_url, get_st_image_url
+        has_access = _user_has_course_access(self.context.get("request"), obj)
         vids = obj.courses_video_id.filter(status="active").order_by("created_at")
         if not vids.exists():
             vids = obj.courses_video_id.all().order_by("created_at")
@@ -638,7 +769,8 @@ class CourseDetailSerializer(serializers.ModelSerializer):
                 "video_id": v.video_id,
                 "title": v.title,
                 "description": v.description,
-                "video_url": get_st_video_url(v.video),
+                "video_url": get_st_video_url(v.video) if has_access else "",
+                "is_locked": not has_access,
                 "image_url": get_st_image_url(v.image),
                 "duration_seconds": sec,
                 "duration": f"{sec // 60}:{sec % 60:02d}" if sec > 0 else "",
@@ -651,6 +783,7 @@ class CourseDetailSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
+        has_access = _user_has_course_access(self.context.get("request"), instance)
         # If the course has no explicit CourseModules (or modules have 0 lessons),
         # but has Videos assigned to it in st_videos, automatically synthesize a
         # complete video curriculum module so lessons, durations, and video lectures appear!
@@ -675,9 +808,10 @@ class CourseDetailSerializer(serializers.ModelSerializer):
                         "duration_seconds": sec,
                         "duration_minutes": dur_min,
                         "duration": f"{sec // 60}:{sec % 60:02d}" if sec > 0 else f"{dur_min}:00",
-                        "is_free_preview": not instance.is_paid or idx == 1,
+                        "is_free_preview": not instance.is_paid,
+                        "is_locked": not has_access,
                         "order": idx,
-                        "video_url": get_st_video_url(v.video),
+                        "video_url": get_st_video_url(v.video) if has_access else "",
                         "image_url": get_st_image_url(v.image),
                         "description": v.description,
                     })
@@ -699,7 +833,7 @@ class CourseEnrollmentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CourseEnrollments
-        fields = ["enrollment_id", "user", "course", "course_name", "progress_percent", "is_completed", "enrolled_at", "completed_at"]
+        fields = ["enrollment_id", "user", "course", "course_name", "progress_percent", "completed_videos", "is_completed", "enrolled_at", "completed_at"]
 
 
 # ==============================================================================

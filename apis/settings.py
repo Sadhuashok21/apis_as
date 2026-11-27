@@ -87,6 +87,8 @@ INSTALLED_APPS = [
     'skiltrix',
     'accounts',
     'cms',
+    'asai',
+    'transporthub',
 ]
 
 ASGI_APPLICATION = 'apis.asgi.application'
@@ -157,6 +159,10 @@ REST_FRAMEWORK = {
         "skiltrix.authentication.SignedAccessTokenAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ],
+    "DEFAULT_THROTTLE_RATES": {
+        "assessment_run": "30/min",
+        "assessment_submit": "15/min",
+    },
 }
 
 ROOT_URLCONF = 'apis.urls'
@@ -281,4 +287,30 @@ R2_ENDPOINT_URL = os.getenv("endpoint_url", "")
 R2_ACCESS_KEY_ID = os.getenv("aws_access_key_id", "")
 R2_SECRET_ACCESS_KEY = os.getenv("aws_secret_access_key", "")
 R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME", "sfs-blueprints")
+
+# ==============================================================================
+# ASAI AI Services Configuration (Ollama & ComfyUI)
+# ==============================================================================
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+COMFYUI_BASE_URL = os.getenv("COMFYUI_BASE_URL", "http://127.0.0.1:8188").rstrip("/")
+ASAI_MEDIA_ROOT = BASE_DIR / "media" / "asai"
+ASAI_MEDIA_URL = f"{MEDIA_URL}asai/"
+ASAI_MAX_UPLOAD_SIZE_MB = int(os.getenv("ASAI_MAX_UPLOAD_SIZE_MB", "25"))
+ASAI_DEFAULT_CHAT_MODEL = os.getenv("ASAI_DEFAULT_CHAT_MODEL", "qwen2.5:3b")
+ASAI_DEFAULT_CODE_MODEL = os.getenv("ASAI_DEFAULT_CODE_MODEL", "qwen2.5-coder:3b")
+ASAI_DEFAULT_VISION_MODEL = os.getenv("ASAI_DEFAULT_VISION_MODEL", "llava:7b")
+
+# ==============================================================================
+# SkilTrix Coding Assessment Sandbox & Rate Limiting
+# ==============================================================================
+EXECUTION_BACKEND = os.getenv("EXECUTION_BACKEND", "auto")
+JUDGE0_API_URL = os.getenv("JUDGE0_API_URL", "")
+JUDGE0_API_KEY = os.getenv("JUDGE0_API_KEY", "")
+ALLOW_JUDGE0_FALLBACK = os.getenv("ALLOW_JUDGE0_FALLBACK", "true").lower() in ("1", "true", "yes")
+
+REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
+    **REST_FRAMEWORK.get("DEFAULT_THROTTLE_RATES", {}),
+    "assessment_run": os.getenv("SKILTRIX_RUN_RATE_LIMIT", "30/min"),
+    "assessment_submit": os.getenv("SKILTRIX_SUBMIT_RATE_LIMIT", "15/min"),
+}
 
